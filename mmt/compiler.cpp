@@ -36,6 +36,14 @@ struct Token {
 	int column;
 };
 
+
+std::filesystem::path getExeDir() {
+    char buffer[MAX_PATH];
+    GetModuleFileNameA(NULL, buffer, MAX_PATH);
+    return std::filesystem::path(buffer).parent_path();
+}
+
+
 class ASTNode {
 public:
 	Token token;
@@ -158,7 +166,7 @@ bool getBool(Value val) {
 
 EnvStruct *lookvar(const string &name, int line, int column) {
 	for (int i = env.size() - 1; i >= 0; i--) {
-	
+
 		if (env[i].count(name)) {
 
 			return &env[i][name];
@@ -170,48 +178,50 @@ EnvStruct *lookvar(const string &name, int line, int column) {
 	exit(1);
 }
 Value getVar(const string &name, int line, int column) {
-    int scopeIndex = (int)env.size() - 1;  // เริ่มที่ scope สุดท้าย
-    for (auto enV = env.rbegin(); enV != env.rend(); ++enV, --scopeIndex) {
-       
-        if (enV->count(name)) {
-            return (*enV)[name].value;
+    // เริ่มจาก scope สุดท้าย (ลึกที่สุด) ไปหาส่วนนอก
+    for (auto it = env.rbegin(); it != env.rend(); ++it) {
+        if (it->count(name)) {
+            return (*it)[name].value;
         }
     }
-    cerr << "ไม่พบตัวแปร " << name << " ในขอบเขตนี้ ที่บรรทัด " << line << " คอลัมน์ " << column << "";
+
+    cerr << "ไม่พบตัวแปร " << name << " ในขอบเขตนี้ ที่บรรทัด "
+         << line << " คอลัมน์ " << column << endl;
     exit(1);
 }
 
 
 
 
-void declare(const string &name, Value val, const bool &isConst, int line, int column) {
-    if (env.back().count(name)) {
-        cerr << "มีการประกาศตัวแปร " << name << " แล้วในขอบเขตนี้ ที่บรรทัด " << line
-             << " คอลัมน์ " << column << "";
-        exit(1);
-    }
-    env.back()[name] = {val, isConst};
-}
+
+void setvar(const string &name, Value val, int line, int column, bool isconst) {
 
 
-void setvar(const string &name, Value val, int line, int column) {
-    EnvStruct *entry = lookvar(name, 0, 0);
-    if (entry->isConst == true) {
-        cerr << "ไม่สามารถกำหนดค่าคงที่" << name << "ได้ ที่บรรทัด " << line
-             << " คอลัมน์ " << column << "";
-        std::exit(1);
-    }
+
+
     // หาตำแหน่งตัวแปรใน scope ที่อยู่ลึกสุดที่เจอชื่อ name
     for (int i = env.size() - 1; i >= 0; i--) {
+
+
         if (env[i].count(name)) {
+
+            EnvStruct *entry = lookvar(name, 0, 0);
+
+            if (entry->isConst == true) {
+                cerr << "ไม่สามารถแปลี่ยนแปลงค่าคงที่" << name << "ได้ ที่บรรทัด " << line
+                     << " คอลัมน์ " << column << "";
+                std::exit(1);
+            }
             env[i][name].value = val;  // อัปเดตค่าตัวแปร
             return;
         }
     }
-    // ถ้าไม่เจอเลย
-    cerr << "ไม่พบตัวแปร " << name << " ในขอบเขตนี้ ที่บรรทัด " << line
-         << " คอลัมน์ " << column << "";
-    exit(1);
+
+
+
+    env.back()[name] = {val, isconst};
+
+
 }
 
 
@@ -1038,19 +1048,7 @@ Value evalStatement(const json &stmt) {
 	  }
 	  cout << "";
 	  return nullptr;
-	} else if (type == "variableDeclaration") {
-		string name = stmt["variable"]["name"];
-		bool isConst = (stmt["vicedatatype"] == "const");
-		Value val;
-		if (!stmt["value"].is_null()) {
-			val = evalExpr(stmt["value"]);
-		} else {
-			val = make_shared<ValueHolder>(monostate{});
-		}
-
-		declare(name, val, isConst, stmt["line"], stmt["column"]);
-		return nullptr;
-	} else if (type == "block") {
+	}  else if (type == "block") {
 		env.push_back({});
 		for (const auto &s : stmt["statements"]) {
 			evalStatement(s);
@@ -1096,7 +1094,7 @@ Value evalStatement(const json &stmt) {
 		Value val = evalExpr(stmt["value"]);
 		if (target["type"] == "variable") {
 			string name = target["name"];
-			setvar(name, val, stmt["line"], stmt["column"]);
+			setvar(name, val, stmt["line"], stmt["column"],  stmt["isconst"] == "true");
 		} else if (target["type"] == "ObjectAccess") {
 			Value obj = evalExpr(target["object"]);
 			Value key = evalExpr(target["key"]);
@@ -1134,7 +1132,7 @@ Value evalStatement(const json &stmt) {
 		string in;
 		getline(cin, in);
 		setvar(name, make_shared<ValueHolder>(in), stmt["line"],
-			   stmt["column"]);
+			   stmt["column"],stmt["isconst"]);
 		return nullptr;
 	} else if (type == "Break") {
 		throw BreakException();
@@ -1199,45 +1197,103 @@ Value evalStatement(const json &stmt) {
 		} while (getBool(evalExpr(stmt["condition"])));
 		return nullptr;
 	}else if (type == "forloop") {
-    // scope สำหรับ initialization และตัวแปรของลูป
-    env.push_back({});
+	    // สร้าง scope สำหรับตัวแปรลูป
+	    env.push_back({});
 
-    evalStatement(stmt["initialization"]);
+	    // 1. กำหนดค่าเริ่มต้นให้ตัวแปร
+	    string varName = stmt["variable"]["name"];
+	    Value initVal = evalExpr(stmt["initialization"]);
+	    setvar(varName, initVal, stmt["line"], stmt["column"], false);
 
+	    // 2. ประเมินค่าสิ้นสุดและขั้นตอน
+	    Value stopVal = evalExpr(stmt["condition"]);
+	    Value stepVal = evalExpr(stmt["changevalue"]);
 
-    while (getBool(evalExpr(stmt["condition"]))) {
-        try {
+	    // ฟังก์ชันแปลง Value เป็น double
+	    auto to_double = [](Value v) -> double {
+	        if (holds_alternative<int>(v->data)) return get<int>(v->data);
+	        else if (holds_alternative<double>(v->data)) return get<double>(v->data);
+	        else {
+	            cerr << "ในลูปต้องเป็นตัวเลข" << endl;
+	            exit(1);
+	        }
+	    };
 
-            // ✅ สร้าง scope ใหม่ให้ body ทุกครั้ง
-            env.push_back({});
+	    double step = to_double(stepVal);
+	    if (step == 0) {
+	        cerr << "ขั้นตอนที่3ต้องไม่เป็นศูนย์ ที่บรรทัด " << stmt["line"]
+	             << " คอลัมน์ " << stmt["column"] << endl;
+	        exit(1);
+	    }
 
-            const json &body = stmt["body"];
-            if (body["type"] == "block") {
-                for (const auto &s : body["statements"]) {
-                    evalStatement(s);
-                }
-            } else {
-                evalStatement(body);
-            }
+	    // ฟังก์ชันตรวจสอบเงื่อนไข
+	    auto condition_met = [&]() -> bool {
+	        Value cur = getVar(varName, stmt["line"], stmt["column"]);
+	        double current_val = to_double(cur);
+	        double stop = to_double(stopVal);
+	        if (step > 0) {
+	            return current_val < stop;
+	        } else {
+	            return current_val > stop;
+	        }
+	    };
 
-            // ✅ ลบ scope ของ body ออกเมื่อจบรอบ
-            env.pop_back();
+	    // วนลูปตราบใดที่เงื่อนไขเป็นจริง
+	    while (condition_met()) {
+	        try {
+	            // สร้าง scope สำหรับ body ของลูป
+	            env.push_back({});
 
-        } catch (const ContinueException &) {
-            env.pop_back(); // ลบ scope body ก่อน continue
-            continue;
-        } catch (const BreakException &) {
-            env.pop_back(); // ลบ scope body ก่อน break
-            break;
-        }
+	            // ประมวลผล body
+	            const json &body = stmt["body"];
+	            if (body["type"] == "block") {
+	                for (const auto &s : body["statements"]) {
+	                    evalStatement(s);
+	                }
+	            } else {
+	                evalStatement(body);
+	            }
 
-        evalStatement(stmt["changevalue"]);
-    }
+	            env.pop_back(); // ลบ scope ของ body
+	        }
+	        catch (const ContinueException &) {
+	            env.pop_back(); // ลบ scope body ก่อน continue
+	            // อัปเดตค่าตัวแปรสำหรับรอบถัดไป
+	            Value cur = getVar(varName, stmt["line"], stmt["column"]);
+	            double new_val = to_double(cur) + step;
 
-    env.pop_back();
+	            // กำหนดค่าใหม่ (รักษา type เดิมถ้าเป็นไปได้)
+	            Value newVal;
+	            if (holds_alternative<int>(cur->data) && step == (int)step && new_val == (int)new_val) {
+	                newVal = make_shared<ValueHolder>((int)new_val);
+	            } else {
+	                newVal = make_shared<ValueHolder>(new_val);
+	            }
+	            setvar(varName, newVal, stmt["line"], stmt["column"], false);
+	            continue;
+	        }
+	        catch (const BreakException &) {
+	            env.pop_back(); // ลบ scope body ก่อน break
+	            break;
+	        }
 
-    return nullptr;
-}
+	        // อัปเดตค่าตัวแปรหลังจากจบ body
+	        Value cur = getVar(varName, stmt["line"], stmt["column"]);
+	        double new_val = to_double(cur) + step;
+
+	        Value newVal;
+	        if (holds_alternative<int>(cur->data) && step == (int)step && new_val == (int)new_val) {
+	            newVal = make_shared<ValueHolder>((int)new_val);
+	        } else {
+	            newVal = make_shared<ValueHolder>(new_val);
+	        }
+	        setvar(varName, newVal, stmt["line"], stmt["column"], false);
+	    }
+
+	    // ลบ scope ของลูป
+	    env.pop_back();
+	    return nullptr;
+	}
  else if (type == "return") {
 		Value val = evalExpr(stmt["value"]);
 		throw ReturnException(val);
@@ -1434,51 +1490,69 @@ else if (type == "Push") {
 	    string filename = stmt["file"];
 	    string namespaceName = stmt["name"];
 
-	    // ดึง path ของไฟล์แม่ ถ้ามี (จากการ import ซ้อน)
+	    // path ของไฟล์แม่ (กรณี import ซ้อน)
 	    string currentFilePath = stmt.value("__currentFilePath", "");
 
-	    // ถ้ามี path ของไฟล์แม่ → คำนวณ path ของไฟล์ลูกจากตรงนั้น
 	    fs::path filePath;
-	    if (!currentFilePath.empty()) {
+	    fs::path inputPath(filename);
+
+	    if (inputPath.is_absolute()) {
+	        // 1️⃣ ระบุ absolute path → ใช้ตรง ๆ
+	        filePath = inputPath;
+	    }
+	    else if (!currentFilePath.empty()) {
+	        // 2️⃣ import ซ้อน → อิงจากไฟล์แม่
 	        fs::path parentPath = fs::path(currentFilePath).parent_path();
-	        filePath = fs::absolute(parentPath / filename);
-	    } else {
-	        filePath = fs::absolute(filename);
+	        filePath = parentPath / inputPath;
+	    }
+	    else {
+	        // 3️⃣ ไม่ระบุ path → ใช้ <exe>/lib/
+	        fs::path exeDir = getExeDir();
+	        filePath = exeDir / "lib" / inputPath;
 	    }
 
+	    filePath = fs::absolute(filePath);
+
 	    if (!fs::exists(filePath)) {
-	        cerr << "ไม่พบไฟล์ '" << filePath << "' ที่บรรทัด " << stmt["line"] << " คอลัมน์ " << stmt["column"] << "";
+	        cerr << "ไม่พบไฟล์ '" << filePath
+	             << "' ที่บรรทัด " << stmt["line"]
+	             << " คอลัมน์ " << stmt["column"] << "";
 	        exit(1);
 	    }
 
 	    ifstream inFile(filePath);
 	    if (!inFile.is_open()) {
-	        cerr << "ไม่สามารถเปิดไฟล์ '" << filePath << "' ได้ ที่บรรทัด " << stmt["line"] << " คอลัมน์ " << stmt["column"] << "";
+	        cerr << "ไม่สามารถเปิดไฟล์ '" << filePath
+	             << "' ได้ ที่บรรทัด " << stmt["line"]
+	             << " คอลัมน์ " << stmt["column"] << "";
 	        exit(1);
 	    }
 
 	    stringstream buffer;
 	    buffer << inFile.rdbuf();
 	    inFile.close();
-	    string content = buffer.str();
 
+	    string content = buffer.str();
 	    if (content.empty()) {
-	        cerr << "ไฟล์ '" << filePath << "' ว่างเปล่า! ที่บรรทัด " << stmt["line"] << " คอลัมน์ " << stmt["column"] << "";
+	        cerr << "ไฟล์ '" << filePath
+	             << "' ว่างเปล่า! ที่บรรทัด "
+	             << stmt["line"] << " คอลัมน์ "
+	             << stmt["column"] << "";
 	        exit(1);
 	    }
 
 	    json importedAST;
 	    try {
-
 	        importedAST = json::parse(content);
 	    } catch (const json::parse_error& e) {
-	        cerr << "ไม่สามารถ parse ไฟล์ '" << filePath << "' เป็น JSON ได้: " << e.what() << " ที่บรรทัด " << stmt["line"] << " คอลัมน์ " << stmt["column"] << "";
+	        cerr << "ไฟล์ที่นำเข้าต้องมีสกุลเป็น .json ที่บรรทัด " << stmt["line"] << " คอลัมน์ "
+		             << stmt["column"] << "";
 	        exit(1);
 	    }
 
-	    // ตั้งค่า __currentFilePath ให้ทุก statement ใน AST ที่ import มา
+	    // ส่ง path ปัจจุบันให้ import ซ้อน
 	    for (auto& innerStmt : importedAST["statements"]) {
-	        innerStmt["__currentFilePath"] = filePath.string(); // จำ path ไว้
+	        innerStmt["__currentFilePath"] = filePath.string();
 	    }
 
 	    evalProgram(importedAST);
@@ -1487,6 +1561,7 @@ else if (type == "Push") {
 
 	    return nullptr;
 	}
+
 
 
 else if(type == "Comment"){
@@ -1505,62 +1580,58 @@ else if(type == "Comment"){
 
 
 /*.*/
-class VariableDeclaretionNode : public ASTNode {
-public:
-	ASTNodePtr varname;
-	string datatype;
-	string vicedatatype;
-	ASTNodePtr value;
 
-	VariableDeclaretionNode(const ASTNodePtr varname, const string &datatype,
-							const string &vicedatatype, ASTNodePtr value,
-							const Token &t) :
-		varname(move(varname)),
-		datatype(datatype),
-		vicedatatype(vicedatatype),
-		value(move(value)),
-		ASTNode(t) {}
-
-	string print() const override {
-		return "{\"type\":\"variableDeclaration\",\"variable\":" +
-			   varname->print() + ",\"datatype\":\"" + datatype +
-			   "\",\"vicedatatype\":" +
-			   (vicedatatype.empty() ? "null" : "\"" + vicedatatype + "\"") +
-			   ",\"value\":" + (value ? value->print() : "null") +
-			   ",\"line\":" + to_string(token.line) +
-			   ",\"column\":" + to_string(token.column) + "}";
-	}
-};
 
 class AssignmentNode : public ASTNode {
 public:
 	ASTNodePtr varname;
 	ASTNodePtr value;
-
-	AssignmentNode(ASTNodePtr varName, ASTNodePtr value, const Token &t) :
-		varname(move(varName)), value(move(value)), ASTNode(t) {}
-
+	bool isconst;
+	AssignmentNode(ASTNodePtr varName, ASTNodePtr value, const Token &t,bool isconst) :
+		varname(move(varName)), value(move(value)), ASTNode(t) , isconst(move(isconst)) {}
+	std::string s =  isconst? "true" : "false";
 	string print() const override {
 		return "{\"type\":\"assignment\",\"variable\":" + varname->print() +
 			   ",\"value\":" + (value ? value->print() : "null") +
 			   ",\"line\":" + to_string(token.line) +
-			   ",\"column\":" + to_string(token.column) + "}";
+			   ",\"column\":" + to_string(token.column) + ","
+			   "\"isconst\" : " + s +  " }";
 	}
 };
 
 class StringNode : public ASTNode {
-
 public:
-	string value;
+    string value;
 
-	StringNode(const string &val, const Token &t) :
-		value(val), ASTNode(t) {}
+    StringNode(const string &val, const Token &t) :
+        value(val), ASTNode(t) {}
 
-	string print() const override {
-		return "{\"type\":\"string\",\"value\":" + value +
-			   ",\"line\":" + to_string(token.line) +
-			   ",\"column\":" + to_string(token.column) + "}";
-	}
+    string print() const override {
+        // Escape string for JSON
+        string escaped;
+        for (char c : value) {
+            switch (c) {
+                case '"': escaped += "\\\""; break;
+                case '\\': escaped += "\\\\"; break;
+                case '\b': escaped += "\\b"; break;
+                case '\f': escaped += "\\f"; break;
+                case '\n': escaped += "\\n"; break;
+                case '\r': escaped += "\\r"; break;
+                case '\t': escaped += "\\t"; break;
+                default:
+                    if (c >= 0 && c < 32) {
+                        char buf[8];
+                        snprintf(buf, sizeof(buf), "\\u%04x", c);
+                        escaped += buf;
+                    } else {
+                        escaped += c;
+                    }
+            }
+        }
+        return "{\"type\":\"string\",\"value\":\"" + escaped +
+               "\",\"line\":" + to_string(token.line) +
+               ",\"column\":" + to_string(token.column) + "}";
+    }
 };
 class NullNode : public ASTNode {
 public:
@@ -1738,17 +1809,30 @@ public:
 };
 class ImportNode : public ASTNode {
 public:
-	string file;
-	string name;
-	ImportNode(const string &file, const string &name, const Token &t) :
-		file(file), name(name), ASTNode(t) {}
+    string file;
+    string name;
+    ImportNode(const string &file, const string &name, const Token &t) :
+        file(file), name(name), ASTNode(t) {}
 
-	string print() const override {
+    string print() const override {
+        // Escape file string for JSON
+        string escaped_file;
+        for (char c : file) {
+            switch (c) {
+                case '"': escaped_file += "\\\""; break;
+                case '\\': escaped_file += "\\\\"; break;
+                case '\n': escaped_file += "\\n"; break;
+                case '\r': escaped_file += "\\r"; break;
+                case '\t': escaped_file += "\\t"; break;
+                default: escaped_file += c;
+            }
+        }
 
-		return "{\"type\":\"import\",\"file\":" + file + ",\"name\":\"" + name +
-			   "\"," + "\"line\":" + to_string(token.line) +
-			   ",\"column\":" + to_string(token.column) + "}";
-	}
+        return "{\"type\":\"import\",\"file\":\"" + escaped_file +
+               "\",\"name\":\"" + name + "\"," +
+               "\"line\":" + to_string(token.line) +
+               ",\"column\":" + to_string(token.column) + "}";
+    }
 };
 class ExportNode : public ASTNode {
 public:
@@ -1869,13 +1953,15 @@ public:
 	ASTNodePtr initialization;
 	ASTNodePtr condition;
 	ASTNodePtr chagevalue;
+	ASTNodePtr variable;
 	vector<ASTNodePtr> statement;
 	ForNode(ASTNodePtr init, ASTNodePtr cond, ASTNodePtr chag,
-			vector<ASTNodePtr> statement, const Token &t) :
+			vector<ASTNodePtr> statement, const Token &t,ASTNodePtr var) :
 		initialization(move(init)),
 		condition(move(cond)),
 		chagevalue(move(chag)),
 		statement(move(statement)),
+		variable(move(var)),
 		ASTNode(t) {}
 
 	string print() const override {
@@ -1888,6 +1974,10 @@ public:
 			state += statement[i]->print();
 		}
 		state += "]";
+
+
+
+
 		return "{\"type\":\"forloop\",\"initialization\":" +
 			   (initialization ? initialization->print() : "null") +
 			   ",\"condition\":" + (condition ? condition->print() : "null") +
@@ -1895,7 +1985,10 @@ public:
 			   (chagevalue ? chagevalue->print() : "null") +
 			   ",\"body\":{\"type\":\"block\",\"statements\":" + state +
 			   "},\"line\":" + to_string(token.line) +
-			   ",\"column\":" + to_string(token.column) + "}";
+			   ",\"column\":" + to_string(token.column) +
+			   ",\"variable\" : " + variable->print() +
+
+			   "}";
 	}
 };
 
@@ -2345,56 +2438,92 @@ class EmptyStatementNode : public ASTNode {
 public:
 	string print() const override { return "{\"type\":\"EmptyStatement\"}"; }
 };
-class Parser {
-	vector<Token> tokens;
-	size_t pos = 0;
+	class Parser {
+	    vector<Token> tokens;
+	    size_t pos = 0;
+	    bool expecting_indent = false;
 
-public:
-	Parser(const vector<Token> &t) :
-		tokens(t) {}
-	Token peek() {
-		if (pos < tokens.size()) {
-			return tokens[pos];
-		}
-		return {"EOF", "", 0, 0};
-	}
-	Token advance() {
+	public:
+	    Parser(const vector<Token> &t) : tokens(t) {}
 
-		if (pos < tokens.size()) {
-			Token tok = tokens[pos];
+	    Token peek() {
+	        if (pos < tokens.size()) {
+	            return tokens[pos];
+	        }
+	        return {"EOF", "", 0, 0};
+	    }
 
-			pos++;
-			return tok;
-		} else {
+	    Token advance() {
+	        if (pos < tokens.size()) {
+	            Token tok = tokens[pos];
+	            pos++;
 
-			return Token{"EOF", "", 0, 0};
-		}
+	            // After certain tokens, we expect an indented block
+	            if (tok.type == "IF" || tok.type == "ELIF" || tok.type == "ELSE" ||
+	                tok.type == "WHILE" || tok.type == "FOR" || tok.type == "DO" ||
+	                tok.type == "PROGRAM" || tok.type == "FUNCTION") {
+	                expecting_indent = true;
+	            }
 
-	}
-	bool match(const string &type) {
-		if (peek().type == type) {
-			advance();
-			return true;
-		}
+	            return tok;
+	        }
+	        return {"EOF", "", 0, 0};
+	    }
 
-		return false;
-	}
-	ASTNodePtr parse() {
-		Token t = peek();
-		vector<ASTNodePtr> statements;
-		while (peek().type != "EOF") {
-			statements.push_back(parseStatement());
-		}
-		return make_shared<ProgramNode>(statements, t);
-	}
+	    void skip_newlines() {
+	        while (peek().type == "NEWLINE") {
+	            advance();
+	        }
+	    }
+
+	    bool match(const string &type) {
+	        if (peek().type == type) {
+	            advance();
+	            return true;
+	        }
+	        return false;
+	    }
+
+	    void expect_indent() {
+	        skip_newlines();
+	        if (!match("INDENT")) {
+	            syntaxError(peek(), "ต้องการการย่อหน้า");
+	        }
+	    }
+
+	    void expect_dedent() {
+	        // Skip newlines before dedent
+	        skip_newlines();
+	        if (!match("DEDENT")) {
+	            syntaxError(peek(), "ต้องการลดระดับการย่อหน้า");
+	        }
+	    }
+	    ASTNodePtr parse() {
+	        Token t = peek();
+	        vector<ASTNodePtr> statements;
+
+	        while (peek().type != "EOF") {
+	            skip_newlines();
+	            if (peek().type == "EOF") break;
+
+	            statements.push_back(parseStatement());
+	        }
+
+	        return make_shared<ProgramNode>(statements, t);
+	    }
 	ASTNodePtr parseExpression() { return parseAssigment(); }
 	ASTNodePtr parseAssigment() {
+		bool isconst  = false;
+		if(match("CONST") ){
+
+			isconst = true;
+		}
 
 		ASTNodePtr left = parseLogicalOR();
 		Token t = peek();
 		if (match("EQUALSSIGN")) {
 			ASTNodePtr right = parseExpression();
-			return make_shared<AssignmentNode>(left, right, t);
+			return make_shared<AssignmentNode>(left, right, t,isconst);
 		}
 
 		return left;
@@ -2528,7 +2657,7 @@ public:
 		while (true) {
 			Token t = peek();
 			if (peek().type == "ADDITION" ||
-				peek().type == "SUBTRACTION") 
+				peek().type == "SUBTRACTION")
 			{
 				string op = advance().type;
 				ASTNodePtr right = Multiplicative();
@@ -2543,7 +2672,7 @@ public:
 		ASTNodePtr left = parseExponents();
 		while (true) {
 			Token t = peek();
-			if (peek().type == "MULTIPLICATION") 
+			if (peek().type == "MULTIPLICATION")
 			{
 				string op =
 					advance().type;
@@ -2582,7 +2711,7 @@ public:
 					}
 				}
 				left = make_shared<BinaryOPNode>(op, left, right, t);
-			} else if (peek().type =="MODULAS") 
+			} else if (peek().type =="MODULAS")
 			{
 				string op =advance().type;
 
@@ -2928,45 +3057,7 @@ public:
 		}
 	}
 
-	ASTNodePtr parseVariableDecleartion() {
-		Token t = peek();
-		if (!match("DECLARE")) {
-			syntaxError(peek(),"ขาด ให้ ในการกำหนดตัวแปร");
-		}
-		if (peek().type !="IDENTIFIER") {
-			syntaxError(peek(),"ไม่มีชื่อตัวแปร");
-		}
-		ASTNodePtr varname = parsevariable();
-		ASTNodePtr initialValue = nullptr;
-		string modifier = "";
-		if (peek().type =="IDENTIFIER") {
-			syntaxError(peek(),"ไม่มีคำสั่ง");
-		}
-		if (peek().type == "BE") {
-			advance();
-			if (match("CONST")) {
-				modifier = "const";
-			}
 
-			else {
-				syntaxError(
-					peek(),"ไม่มีmodifierชื่อนี้");
-			}
-		}
-		if (peek().type =="EQUALSSIGN") {
-			advance();
-			initialValue = parseExpression();
-		}
-
-		if (modifier == "const" && !initialValue) {
-			syntaxError(peek(),"ค่าคงที่ต้องกำหนดค่าเริ่มต้น");
-		}
-		if (!match("SEMICOLON")) {
-			syntaxError(peek(),"ต้องมี ; หลังจบคำสั่ง");
-		}
-		return make_shared<VariableDeclaretionNode>(varname, "have no", modifier,
-													initialValue, t);
-	}
 
 	ASTNodePtr parseArrayLiteral() {
 		Token t = peek();
@@ -3099,8 +3190,7 @@ public:
 
 				if (!match("CLOSE_PAREN"))
 					syntaxError(peek(), "ที่ แสดงผล ขาด )");
-				if (!match("SEMICOLON"))
-					syntaxError(peek(), "ที่ แสดงผล ขาด ;");
+
 
 				return make_shared<PrintNode>(expressions, t);
 			}
@@ -3108,270 +3198,252 @@ public:
 		throw runtime_error("แสดงผล ไม่ถูกต้อง");
 	}
 	ASTNodePtr parseForLoop() {
-		Token t = peek();
+	    Token t = peek();
 
-		if (!match("FOR")) {
-			syntaxError(peek(), "ขาด คำสั่ง ทำซ้ำ");
-		}
+	    if (!match("FOR")) {
+	        syntaxError(peek(), "ไม่พบคำสั่ง สำหรับ");
+	    }
 
-		if (!match("OPEN_PAREN")) {
-			syntaxError(peek(), "ขาด ( ที่ ทำซ้ำ");
-		}
-		if (!match("STATEMENT1")) {
-			syntaxError(peek(),"ขาด ตั้งแต่ ก่อนกำหนดค่าเริ่มต้น ที่ ทำซ้ำ");
-		}
-		ASTNodePtr init = nullptr; // init mean initialization😎
-		if (peek().type == "DECLARE") {
-			Token t = peek();
-					if (!match("DECLARE")) {
-						syntaxError(peek(),"ขาด ให้ ในการกำหนดตัวแปร");
-					}
+	    if(peek().type != "IDENTIFIER") syntaxError(peek(), "ต้องมีการกำหนดตัวแปร");
+	    ASTNodePtr var = parsevariable();
 
-					if (peek().type !="IDENTIFIER") {
-						syntaxError(peek(),"ไม่มีชื่อตัวแปร");
-					}
-					ASTNodePtr varname = parsevariable();
-					ASTNodePtr initialValue = nullptr;
-					string modifier = "";
-					if (peek().type =="IDENTIFIER") {
-						syntaxError(peek(),"ไม่มีคำสั่ง");
-					}
-					if (peek().type == "BE") {
-						advance();
-						if (match("CONST")) {
-							modifier = "const";
-						}
+	    if(!match("RANGE")) syntaxError(peek(), "ต้องมีคำว่า \"ในช่วง\"  ในการทำซ้า ");
 
-						else {
-							syntaxError(
-								peek(),"ไม่มีmodifierชื่อนี้");
-						}
-					}
-					if (peek().type =="EQUALSSIGN") {
-						advance();
-						initialValue = parseExpression();
-					}
+	    if (!match("OPEN_PAREN")) {
+	        syntaxError(peek(), "ต้องมี ( ที่ ทำซ้ำ");
+	    }
+	    vector<ASTNodePtr>ran;
 
-					if (modifier == "const" && !initialValue) {
-						syntaxError(peek(),"ค่าคงที่ต้องกำหนดค่าเริ่มต้น");
-					}
-					init =  make_shared<VariableDeclaretionNode>(varname, "have no", modifier,
-																initialValue, t);
-		} else if (peek().type != "STATEMENT2") {
-			init = parseExpression();
-		}
-		if (!match("STATEMENT2")) {
-			syntaxError(peek(), "ขาด จนถึง ตามหลังค่าเริ่มต้น ที่ ทำซ้ำ");
-		}
-		ASTNodePtr cond = nullptr; // cond mean condition¯\_(ツ)_/¯
-		if (peek().type != "STATEMENT3") {
-			cond = parseExpression();
-		}
-		if (!match("STATEMENT3")) {
-			syntaxError(peek(),
-						"ขาด โดยแต่ละรอบ ตามหลังค่าเงื่อนไข ที่ ทำซ้ำ");
-		}
-		ASTNodePtr inc = nullptr; // inc mean incrasement 👌
-		if (peek().type != "CLOSE_PAREN") {
-			inc = parseExpression();
-		}
-		if (!match("CLOSE_PAREN")) {
-			syntaxError(peek(),
-						"ขาด ) ตามหลังการเปลี่ยนค่า ที่ ทำซ้ำ");
-		}
-		vector<ASTNodePtr> body;
-		if (!match("OPEN_BRACKETS")) {
-			syntaxError(peek(), "ขาด { ที่ ทำซ้ำ");
-		}
-		while (peek().type != "CLOSE_BRACKETS" &&
-			   peek().type !="EOF")
-		{
-			body.push_back(parseStatement());
-		}
+	    while(peek().type != "CLOSE_PAREN"){
+	    	ran.push_back(parseExpression());
+			if (!match("COMMA")) {
+				break;
+			}
+	    }
 
-		if (!match("CLOSE_BRACKETS")) {
-			syntaxError(peek(), "ขาด } ที่ ทำซ้ำ");
-		}
-		return make_shared<ForNode>(init, cond, inc, body, t);
+
+
+	    if (!match("CLOSE_PAREN")) {
+	        syntaxError(peek(), "ต้องมี ) ที่ ทำซ้ำ");
+	    }
+
+	    ASTNodePtr st1 = make_shared<IntNode>(0, peek());
+	    ASTNodePtr st2 = make_shared<IntNode>(0, peek());
+	    ASTNodePtr st3 = make_shared<IntNode>(1, peek());
+
+	    if(ran.size() > 3) syntaxError(peek(), "argument ไม่ได้มากที่สุดคือ 3 ");
+	    else if(ran.size() < 1) syntaxError(peek(), "argument ไม่ได้มากที่สุดคือ 3 ");
+	    else if(ran.size() == 1) st2 = ran[0];
+	    else if(ran.size() == 2){
+	    	st1 = ran[0];
+	    	st2 = ran[1];
+	    }
+	    else if(ran.size() == 3){
+	    	st1 = ran[0];
+	    	st2 = ran[1];
+	    	st3 = ran[2];
+	    }
+	    if (!match("COLON")) {
+	        syntaxError(peek(), "ต้องการ : หลังการวนซ้ำ");
+	    }
+
+	    skip_newlines();
+	    expect_indent();
+
+	    vector<ASTNodePtr> body;
+	    while (peek().type != "DEDENT" && peek().type != "EOF") {
+	        body.push_back(parseStatement());
+	        skip_newlines();
+	    }
+
+	    expect_dedent();
+	    return make_shared<ForNode>(st1, st2, st3, body, t,var);
 	}
 	ASTNodePtr parseWhileloop() {
-		Token t = peek();
+	    Token t = peek();
 
-		if (!match("WHILE")) {
+	    if (!match("WHILE")) {
+	        syntaxError(peek(), "ไม่พบคำสั่ง ขณะ");
+	    }
 
-			syntaxError(peek(), "ขาด คำสั่ง ขณะ");
-		}
+	    if (!match("OPEN_PAREN")) {
 
+	    }
+	    ASTNodePtr cond = nullptr;
+	    if (peek().type != "CLOSE_PAREN") {
+	        cond = parseExpression();
+	    }
+	    if (!match("CLOSE_PAREN")) {
 
-		if (!match("OPEN_PAREN")) {
-			syntaxError(peek(), "ขาด ( ที่ ขณะ");
-		}
-		ASTNodePtr cond = nullptr; // cond mean condition o((>ω< ))o
-		if (peek().type != "CLOSE_PAREN") {
-			cond = parseExpression();
-		}
-		if (!match("CLOSE_PAREN")) {
-			syntaxError(peek(), "ขาด ) ที่ ขณะ");
-		}
-		if (!match("OPEN_BRACKETS")) {
-			syntaxError(peek(), "ขาด { ที่ ขณะ");
-		}
-		vector<ASTNodePtr> body;
-		while (peek().type != "CLOSE_BRACKETS" &&
-			   peek().type != "EOF")
-		{
-			body.push_back(parseStatement());
-		}
-		if (!match("CLOSE_BRACKETS")) {
-			syntaxError(peek(), "ขาด } ที่ ขณะ");
-		}
-		return make_shared<WhileNode>(cond, body, t);
+	    }
+
+	    if (!match("COLON")) {
+	        syntaxError(peek(), "ต้องการ : หลังเงื่อนไข ขณะ");
+	    }
+
+	    skip_newlines();
+	    expect_indent();
+
+	    vector<ASTNodePtr> body;
+	    while (peek().type != "DEDENT" && peek().type != "EOF") {
+	        body.push_back(parseStatement());
+	        skip_newlines();
+	    }
+
+	    expect_dedent();
+	    return make_shared<WhileNode>(cond, body, t);
 	}
 	ASTNodePtr parseDoWhile() {
-		Token t = peek();
-		if (!match("DO")) {
+	    Token t = peek();
+	    if (!match("DO")) {
+	        syntaxError(peek(), "ไม่พบ ทำ ใน ทำ..ขณะ");
+	    }
 
-			syntaxError(peek(), "ไม่พบ ทำ ใน ทำ..ขณะ");
-		}
+	    if (!match("COLON")) {
+	        syntaxError(peek(), "ต้องการ : หลัง ทำ");
+	    }
 
-		if (!match("OPEN_BRACKETS")) {
-			syntaxError(peek(), "ไม่พบ { ใน ทำ..ขณะ");
+	    skip_newlines();
+	    expect_indent();
 
-		}
-		vector<ASTNodePtr> body;
-		while (peek().type != "CLOSE_BRACKETS" &&
-			   peek().type !="EOF")
-		{
-			body.push_back(parseStatement());
-		}
-		if (!match("CLOSE_BRACKETS")) {
+	    vector<ASTNodePtr> body;
+	    while (peek().type != "DEDENT" && peek().type != "EOF") {
+	        body.push_back(parseStatement());
+	        skip_newlines();
+	    }
 
-			syntaxError(peek(), "ไม่พบ } ใน ทำ..ขณะ");
-		}
-		if (!match("WHILE")) {
-			syntaxError(peek(), "ไม่พบ ขณะ ใน ทำ..ขณะ");
-		}
-		if (!match("OPEN_PAREN")) {
-			syntaxError(peek(), "ไม่พบ ( ใน ทำ..ขณะ");
+	    expect_dedent();
 
-		}
-		if (!match("WHILE")) {
-			syntaxError(peek(), "ไม่พบ ขณะ ใน ทำ..ขณะ");
-		}
-		if (!match("OPEN_PAREN")) {
-			syntaxError(peek(), "ไม่พบ ( ใน ทำ..ขณะ");
+	    if (!match("WHILE")) {
+	        syntaxError(peek(), "ไม่พบ ขณะ ใน ทำ..ขณะ");
+	    }
 
-		}
-		ASTNodePtr cond = nullptr;
-		if (peek().type != "CLOSE_PAREN" &&
-			peek().type != "EOF") {
-			cond = parseExpression();
-		}
-		if (!match("CLOSE_PAREN")) {
+	    if (!match("OPEN_PAREN")) {
 
-			syntaxError(peek(), "ไม่พบ ) ใน ทำ..ขณะ");
+	    }
 
-		}
-		return make_shared<DoWhileNode>(cond, body, t);
+	    ASTNodePtr cond = nullptr;
+	    if (peek().type != "CLOSE_PAREN" && peek().type != "EOF") {
+	        cond = parseExpression();
+	    }
+
+	    if (!match("CLOSE_PAREN")) {
+
+	    }
+
+
+
+	    return make_shared<DoWhileNode>(cond, body, t);
 	}
 	ASTNodePtr parseElif() {
-		Token t = peek();
-		if (!match("ELIF")) {
-			syntaxError(peek(), "ไม่พบคำสั่ง มิฉะนั้นถ้า");
-		}
+	    Token t = peek();
+	    if (!match("ELIF")) {
+	        syntaxError(peek(), "ไม่พบคำสั่ง มิฉะนั้นถ้า");
+	    }
 
-		if (!match("OPEN_PAREN")) {
-			syntaxError(peek(), "ต้องมี ( ก่อนเงื่อนไข ที่ มิฉะนั้นถ้า");
-		}
-		ASTNodePtr cond = nullptr;
-		if (peek().type != "CLOSE_PAREN") {
-			cond = parseExpression();
-		}
-		if (!match("CLOSE_PAREN")) {
-			syntaxError(peek(), "ต้องมี ) หลังเงื่อนไข ที่ มิฉะนั้นถ้า");
-		}
-		if (!match("OPEN_BRACKETS")) {
-			syntaxError(peek(), "ต้องมี { ก่อนคำสั่ง ที่ มิฉะนั้นถ้า");
-		}
-		vector<ASTNodePtr> body;
-		while (
-			peek().type != "CLOSE_BRACKETS" &&
-			peek().type !="EOF")
-		{
-			body.push_back(parseStatement());
-		}
-		if (!match("CLOSE_BRACKETS")) {
-			syntaxError(peek(), "ต้องมี } หลังคำสั่ง ที่ มิฉะนั้นถ้า");
-		}
-		return make_shared<ElifNode>(cond, body, t);
+	    if (!match("OPEN_PAREN")) {
+
+	    }
+	    ASTNodePtr cond = nullptr;
+	    if (peek().type != "CLOSE_PAREN") {
+	        cond = parseExpression();
+	    }
+	    if (!match("CLOSE_PAREN")) {
+
+	    }
+
+	    if (!match("COLON")) {
+	        syntaxError(peek(), "ต้องการ : หลังเงื่อนไข");
+	    }
+
+	    skip_newlines();
+	    expect_indent();
+
+	    vector<ASTNodePtr> body;
+	    while (peek().type != "DEDENT" && peek().type != "EOF" &&
+	           peek().type != "ELIF" && peek().type != "ELSE") {
+	        body.push_back(parseStatement());
+	        skip_newlines();
+	    }
+
+	    expect_dedent();
+	    return make_shared<ElifNode>(cond, body, t);
 	}
 
 	ASTNodePtr parseIf() {
-		Token t = peek();
-		if (!match("IF")) {
-			syntaxError(peek(), "ไม่พบคำสั่ง ถ้า");
-		}
+	    Token t = peek();
+	    if (!match("IF")) {
+	        syntaxError(peek(), "ไม่พบคำสั่ง ถ้า");
+	    }
 
-		if (!match("OPEN_PAREN")) {
-			syntaxError(peek(), "ต้องมี ( ก่อนเงื่อนไข ที่ ถ้า");
-		}
-		ASTNodePtr cond = nullptr;
-		if (peek().type != "CLOSE_PAREN") {
-			cond = parseExpression();
-		}
-		if (!match("CLOSE_PAREN")) {
-			syntaxError(peek(), "ต้องมี ) หลังเงื่อนไข ที่ ถ้า");
-		}
-		if (!match("OPEN_BRACKETS")) {
-			syntaxError(peek(), "ต้องมี { ก่อนคำสั่ง ที่ ถ้า");
-		}
-		vector<ASTNodePtr> body;
-		while (
-			peek().type != "CLOSE_BRACKETS" &&
-			peek().type !="EOF")
-		{
-			body.push_back(parseStatement());
-		}
-		if (!match("CLOSE_BRACKETS")) {
-			syntaxError(peek(), "ต้องมี } หลังคำสั่ง ที่ ถ้า");
-		}
-		vector<ASTNodePtr> elifs;
-		while (peek().type == "ELIF") {
-			elifs.push_back(parseElif());
-		}
-		ASTNodePtr elsE = nullptr;
-		if (peek().type == "ELSE") {
-			elsE = parseElse();
-		}
-		return make_shared<IfNode>(cond, body, t, elifs, elsE);
+	    if (!match("OPEN_PAREN")) {
+
+	    }
+	    ASTNodePtr cond = nullptr;
+	    if (peek().type != "CLOSE_PAREN") {
+	        cond = parseExpression();
+	    }
+	    if (!match("CLOSE_PAREN")) {
+
+	    }
+
+	    // Expect colon and indented block
+	    if (!match("COLON")) {
+	        syntaxError(peek(), "ต้องการ : หลังเงื่อนไข");
+	    }
+
+	    skip_newlines();
+	    expect_indent();
+
+	    vector<ASTNodePtr> body;
+	    while (peek().type != "DEDENT" && peek().type != "EOF" &&
+	           peek().type != "ELIF" && peek().type != "ELSE") {
+	        body.push_back(parseStatement());
+	        skip_newlines();
+	    }
+
+	    expect_dedent();
+
+	    vector<ASTNodePtr> elifs;
+	    while (peek().type == "ELIF") {
+	        elifs.push_back(parseElif());
+	    }
+
+	    ASTNodePtr elsE = nullptr;
+	    if (peek().type == "ELSE") {
+	        elsE = parseElse();
+	    }
+
+	    return make_shared<IfNode>(cond, body, t, elifs, elsE);
 	}
 	ASTNodePtr parseElse() {
-		Token t = peek();
-		if (!match("ELSE")) {
-			syntaxError(peek(), "ไม่พบคำสั่ง มิฉะนั้น");
-		}
+	    Token t = peek();
+	    if (!match("ELSE")) {
+	        syntaxError(peek(), "ไม่พบคำสั่ง มิฉะนั้น");
+	    }
 
-		if (!match("OPEN_BRACKETS")) {
-			syntaxError(peek(), "ต้องมี { ก่อนคำสั่ง ที่ มิฉะนั้น");
-		}
-		vector<ASTNodePtr> body;
-		while (
-			peek().type != "CLOSE_BRACKETS" &&
-			peek().type !="EOF")
-		{
-			body.push_back(parseStatement());
-		}
-		if (!match("CLOSE_BRACKETS")) {
-			syntaxError(peek(), "ต้องมี } หลังคำสั่ง ที่ มิฉะนั้น");
-		}
-		return make_shared<ElseNode>(body, t);
+	    if (!match("COLON")) {
+	        syntaxError(peek(), "ต้องการ : หลัง มิฉะนั้น");
+	    }
+
+	    skip_newlines();
+	    expect_indent();
+
+	    vector<ASTNodePtr> body;
+	    while (peek().type != "DEDENT" && peek().type != "EOF") {
+	        body.push_back(parseStatement());
+	        skip_newlines();
+	    }
+
+	    expect_dedent();
+	    return make_shared<ElseNode>(body, t);
 	}
 
 	ASTNodePtr parseFunctionDef() {
-		Token t = peek();
-		if (!match("PROGRAM")) {
-			syntaxError(peek(), "ไม่พบคำสั่ง โปรแกรม");
-		}
+	    Token t = peek();
+	    if (!match("PROGRAM")) {
+	        syntaxError(peek(), "ไม่พบคำสั่ง โปรแกรม");
+	    }
 		if (peek().type != "IDENTIFIER") {
 			syntaxError(peek(),"ขาดชื่อ โปรแกรม ในการประกาศโปรแกรม");
 		}
@@ -3384,29 +3456,20 @@ public:
 			   peek().type != "EOF") {
 			//pramas.push_back(parseVariableDecleartion());
 			Token t = peek();
-			if (!match("DECLARE")) {
-				syntaxError(peek(),"ขาด ให้ ในการกำหนดพารามิเตอร์");
-			}
+
 			if (peek().type !=
 				"IDENTIFIER") {
 				syntaxError(peek(),"ไม่มีชื่อตัวแปร");
 			}
 			ASTNodePtr varname = parsevariable();
 			ASTNodePtr initialValue = nullptr;
-			string modifier = "";
-			if (peek().type =="IDENTIFIER") {
-				syntaxError(peek(),"ไม่มีคำสั่งนี่อยู่");
-			}
-			if (peek().type == "BE") {
-				syntaxError(peek(), "ไม่สามารถกำหนด modifier ให้กับ พารามิเตอร์ได้");
-			}
+
 			if (peek().type =="EQUALSSIGN") {
 				advance();
 				initialValue = parseExpression();
 			}
 
-			pramas.push_back(make_shared<VariableDeclaretionNode>(varname, "have no", modifier,
-														initialValue, t));
+			pramas.push_back(make_shared<AssignmentNode>(varname, initialValue, t,true));
 			if (!match("COMMA")) {
 				break;
 			}
@@ -3414,22 +3477,21 @@ public:
 		if (!match("CLOSE_PAREN")) {
 			syntaxError(peek(), "ขาด ( ในการประกาศโปรแกรม");
 		}
-		if (!match("OPEN_BRACKETS")) {
-			syntaxError(peek(),
-						"ขาด { ในการประกาศโปรแกรม ที่" + funcname);
-		}
-		vector<ASTNodePtr> body;
-		while (peek().type != "CLOSE_BRACKETS" &&
-			   peek().type !="EOF")
-		{
-			body.push_back(parseStatement());
-		}
-		if (!match("CLOSE_BRACKETS")) {
-			syntaxError(peek(),
-						"ขาด } ในการประกาศโปรแกรม ที่" + funcname);
-		}
-		return make_shared<FunctionDeclaretionNode>(funcname, pramas, body,
-													"none", t);
+	    if (!match("COLON")) {
+	        syntaxError(peek(), "ต้องการ : หลังพารามิเตอร์");
+	    }
+
+	    skip_newlines();
+	    expect_indent();
+
+	    vector<ASTNodePtr> body;
+	    while (peek().type != "DEDENT" && peek().type != "EOF") {
+	        body.push_back(parseStatement());
+	        skip_newlines();
+	    }
+
+	    expect_dedent();
+	    return make_shared<FunctionDeclaretionNode>(funcname, pramas, body, "none", t);
 	}
 	ASTNodePtr parseInput() {
 		Token t = peek();
@@ -3440,25 +3502,18 @@ public:
 			syntaxError(peek(), "ขาดชื่อตัวแปร");
 		}
 		ASTNodePtr varname = parsevariable();
-		if (!match("SEMICOLON")) {
-			syntaxError(peek(), "ต้องมี ; หลังจบคำสั่ง ที่ รับข้อมูล ");
-		}
+
 		return make_shared<InputNode>(varname, t);
 	}
 	ASTNodePtr parseReturn() {
-		Token t = peek();
-		if (!match("RETURN")) {
-			syntaxError(peek(), "ขาด คำสั่ง คืนค่า");
+			Token t = peek();
+			if (!match("RETURN")) {
+				syntaxError(peek(), "ขาด คำสั่ง คืนค่า");
+			}
+			ASTNodePtr value = parseExpression();
+
+			return make_shared<ReturnNode>(value, t);
 		}
-		ASTNodePtr value = nullptr;
-		if (peek().type != "SEMICOLON") {
-			value = parseExpression();
-		}
-		if (!match("SEMICOLON")) {
-			syntaxError(peek(), "ต้องมี ; หลังจบคำสั่ง ที่คืนค่า ");
-		}
-		return make_shared<ReturnNode>(value, t);
-	}
 	ASTNodePtr parseImport() {
 		Token t = peek();
 		if (!match("IMPORT")) {
@@ -3472,9 +3527,7 @@ public:
 			syntaxError(peek(), "ขาด แทน");
 		}
 		string name = advance().value;
-		if (!match("SEMICOLON")) {
-			syntaxError(peek(), "ต้องมี ; หลังจบคำสั่ง ที่นำเข้า ");
-		}
+
 		return make_shared<ImportNode>(filename, name, t);
 	}
 
@@ -3510,12 +3563,8 @@ public:
 	    } else if (peek().type == "EXITPROCESS") {
 	        Token t = peek();
 	        advance();
-	        if (!match("SEMICOLON")) {
-	            syntaxError(peek(), "ขาด ; ที่ จบการทำงาน");
-	        }
+
 	        return make_shared<ExitProcessNode>(t);
-	    } else if (peek().type == "DECLARE") {
-	        return parseVariableDecleartion();
 	    } else if (peek().type == "INPUT") {
 	        return parseInput();
 	    } else if (peek().type == "PRINT") {
@@ -3530,15 +3579,11 @@ public:
 	        return parseForLoop();
 	    } else if (match("BREAK")) {
 	        Token t = tokens[pos - 1];
-	        if (!match("SEMICOLON")) {
-	            syntaxError(peek(), "ขาด ; ที่ ออกจากการทำซ้ำ");
-	        }
+
 	        return make_shared<BreakNode>(t);
 	    } else if (match("CONTINUE")) {
 	        Token t = tokens[pos - 1];
-	        if (!match("SEMICOLON")) {
-	            syntaxError(peek(), "ขาด ; ที่ ไปยังรอบถัดไป");
-	        }
+
 	        return make_shared<ContinueNode>(t);
 	    } else if (peek().type == "ELIF") {
 	        return parseElif();
@@ -3550,17 +3595,15 @@ public:
 	        return parseImport();
 	    } else if (peek().type == "EXPORT") {
 	        return parseExport();
-	    } else if (peek().type == "IDENTIFIER") {
+	    }else if (peek().type == "IDENTIFIER") {
 	        // ใช้ parsepimary() ที่มีอยู่แล้วซึ่งจัดการ chain อยู่แล้ว
 	        ASTNodePtr expr = parseExpression();
 
-	        if (!match("SEMICOLON")) {
-	            syntaxError(peek(), "ขาด ; ที่ จบคำสั่ง");
-	        }
+
 	        return expr;
 	    }
 
-
+	    skip_newlines();
 
 	    stringstream ss;
 	    ss << "คำสั่งไม่รู้จัก: '" << peek().value
@@ -3608,185 +3651,240 @@ void update_counters(const string &str, size_t &line, size_t &col) {
 
 // command base
 vector<pair<string, string>> TokenPatterns = {
-	{"COMMENT", R"(#[\s\S]*?#)"},
-	{"PROGRAM", "โปรแกรม"},
-	{"EXITPROCESS", "จบการทำงาน"},
+    {"COMMENT", R"(#[\s\S]*?#)"},
+    {"PROGRAM", "โปรแกรม"},
+    {"EXITPROCESS", "จบการทำงาน"},
 	{"OPEN_BRACKETS", "\\{"},
 	{"CLOSE_BRACKETS", "\\}"},
-	{"DECLARE", "ให้"},
-	{"INTEGER", "จำนวนเต็ม"},
-	{"FLOAT", "ทศนิยม"},
-	{"STRING", "ข้อความ"},
-	{"ARRAY", "ชุดข้อมูล"},
-	{"OBJECT", "อ็อบเจกต์"},
-	{"CONST", "ค่าคงที่"},
-	{"BOOLLEAN", "ค่าความจริง"},
-	{"NULL", "ว่าง"},
-	{"CONVERTDATATYPE", "เปลี่ยนชนิดข้อมูล"},
-	{"LENGTH", "ขนาด"},
-	{"POP", "ดึงออก"},
-	{"PUSH", "เพิ่ม"},
-	{"INSERT", "แทรก"},
-	{"ERASE", "ลบ"},
-	{"BE", "เป็น"},
-	{"ARROW", "->"},
-	{"EQUALSSIGN", "คือ"},
-	{"AS", "แทน"},
-	{"INCREMENT", "\\+\\+"},
-	{"ADDITION", "\\+"},
-	{"DECREMENT", "--"},
-	{"SUBTRACTION", "-"},
-	{"STRING_VALUE", R"("(?:[^"\\]|\\.)*")"},
-	{"FLOAT_VALUE", "-?\\d+\\.\\d+"},
-	{"INTEGER_VALUE", "-?\\d+"},
-	{"ROOT", "ราก"},
-	{"TRUE_VALUE", "จริง"},
-	{"FALSE_VALUE", "เท็จ"},
-	{"BRACKET_OPENING", "\\["},
-	{"BRACKET_CLOSEING", "\\]"},
-	{"EXPONENTIATION", "\\*\\*"},
-	{"MULTIPLICATION", "\\*"},
-	{"FLOORDIVISION", "//"},
-	{"DIVISION", "/"},
-	{"MODULAS", "%"},
-	{"SHIFT_LEFT", "<<"},
-	{"SHIFT_RIGHT", ">>"},
-	{"EQUALTO", "="},
-	{"NOTEQUAL", "!="},
-	{"GREATEROREQUAL", ">="},
-	{"LESSEROREQUAL", "<="},
-	{"LN", "ln"},
-	{"GREATER", ">"},
-	{"LESSER", "<"},
-	{"BITWISE_NOT", "!"},
-	{"BITWISE_AND", "&"},
-	{"BITWISE_OR", "\\|"},
-	{"NOT", "ไม่"},
-	{"OR", "หรือ"},
-	{"AND", "และ"},
-	{"XOR", "ซอร์"},
-	{"DOT", "\\."},
-	{"COMMA", ","},
-	{"INPUT", "รับข้อมูล"},
-	{"PRINT", "แสดงผล"},
-	{"IF", "ถ้า"},
-	{"OPEN_PAREN", "\\("},
-	{"CLOSE_PAREN", "\\)"},
-	{"STATEMENT1", "ตั้งแต่"},
-	{"STATEMENT2", "จนถึง"},
-	{"STATEMENT3", "โดยแต่ละรอบ"},
-	{"WHILE", "ขณะ"},
-	{"FOR", "ทำซ้ำ"},
-	{"DO", "ทำ"},
-	{"BREAK", "ออกจากการทำซ้ำ"},
-	{"CONTINUE", "ไปยังรอบถัดไป"},
-	{"ELIF", "มิฉะนั้นถ้า"},
-	{"ELSE", "มิฉะนั้น"},
-	{"VOID", "เปล่า"},
-	{"RETURN", "คืนค่า"},
-	{"IMPORT", "นำเข้า"},
-	{"EXPORT", "ส่งออก"},
-	{"COLON", ":"},
-	{"SEMICOLON", ";"},
-	{"IDENTIFIER", "[a-zA-Zก-๙_][a-zA-Zก-๙0-9_@$]*"}};
+    {"DECLARE", "ให้"},
+    {"INTEGER", "จำนวนเต็ม"},
+    {"FLOAT", "ทศนิยม"},
+    {"STRING", "ข้อความ"},
+    {"ARRAY", "ชุดข้อมูล"},
+    {"OBJECT", "อ็อบเจกต์"},
+    {"CONST", "ค่าคงที่"},
+    {"BOOLLEAN", "ค่าความจริง"},
+    {"NULL", "ว่าง"},
+    {"CONVERTDATATYPE", "เปลี่ยนชนิดข้อมูล"},
+    {"LENGTH", "ขนาด"},
+    {"POP", "ดึงออก"},
+    {"PUSH", "เพิ่ม"},
+    {"INSERT", "แทรก"},
+    {"ERASE", "ลบ"},
+    {"BE", "เป็น"},
+    {"ARROW", "->"},
+    {"EQUALSSIGN", "คือ"},
+    {"AS", "แทน"},
+    {"INCREMENT", "\\+\\+"},
+    {"ADDITION", "\\+"},
+    {"DECREMENT", "--"},
+    {"SUBTRACTION", "-"},
+    {"STRING_VALUE", R"("(?:[^"\\]|\\.)*")"},
+    {"FLOAT_VALUE", "-?\\d+\\.\\d+"},
+    {"INTEGER_VALUE", "-?\\d+"},
+    {"ROOT", "ราก"},
+    {"TRUE_VALUE", "จริง"},
+    {"FALSE_VALUE", "เท็จ"},
+    {"BRACKET_OPENING", "\\["},
+    {"BRACKET_CLOSEING", "\\]"},
+    {"EXPONENTIATION", "\\*\\*"},
+    {"MULTIPLICATION", "\\*"},
+    {"FLOORDIVISION", "//"},
+    {"DIVISION", "/"},
+    {"MODULAS", "%"},
+    {"SHIFT_LEFT", "<<"},
+    {"SHIFT_RIGHT", ">>"},
+    {"EQUALTO", "="},
+    {"NOTEQUAL", "!="},
+    {"GREATEROREQUAL", ">="},
+    {"LESSEROREQUAL", "<="},
+    {"LN", "ln"},
+    {"GREATER", ">"},
+    {"LESSER", "<"},
+    {"BITWISE_NOT", "!"},
+    {"BITWISE_AND", "&"},
+    {"BITWISE_OR", "\\|"},
+    {"NOT", "ไม่"},
+    {"OR", "หรือ"},
+    {"AND", "และ"},
+    {"XOR", "ซอร์"},
+    {"DOT", "\\."},
+    {"COMMA", ","},
+    {"INPUT", "รับ"},
+    {"PRINT", "แสดง"},
+    {"IF", "ถ้า"},
+    {"OPEN_PAREN", "\\("},
+    {"CLOSE_PAREN", "\\)"},
+    {"WHILE", "ขณะ"},
+    {"FOR", "สำหรับ"},
+	{"RANGE","ในช่วง"},
+    {"DO", "ทำ"},
+    {"BREAK", "ออก"},
+    {"CONTINUE", "ถัดไป"},
+    {"ELIF", "มิฉะนั้นถ้า"},
+    {"ELSE", "มิฉะนั้น"},
+    {"VOID", "เปล่า"},
+    {"RETURN", "คืนค่า"},
+    {"IMPORT", "นำเข้า"},
+    {"EXPORT", "ส่งออก"},
+    {"COLON", ":"},
+    {"IDENTIFIER", "[a-zA-Zก-๙_][a-zA-Zก-๙0-9_@$]*"},
+    {"NEWLINE", "\n"},
+    {"INDENT", "INDENT"},  // Virtual token
+    {"DEDENT", "DEDENT"}   // Virtual token
+};
 
 vector<Token> lexer(const string &code) {
-	vector<Token> tokens;
-	string remaining = code;
-	int current_line = 1;
-	int current_col = 1;
+    vector<Token> tokens;
+    vector<int> indent_stack = {0}; // Track indentation levels
+    int current_line = 1;
+    int current_col = 1;
+    size_t i = 0;
+    bool at_line_start = true;
+    int current_indent = 0;
 
-	// Precompile regex patterns
-	vector<pair<string, regex>> compiledPatterns;
-	regex whitespace_reg("^\\s+"); // Handles all whitespace
+    while (i < code.length()) {
+        // Skip whitespace within a line
+        if (at_line_start) {
+            // Count leading spaces/tabs for indentation
+            current_indent = 0;
+            while (i < code.length() && (code[i] == ' ' || code[i] == '\t')) {
+                if (code[i] == '\t') {
+                    current_indent += 4; // Tab = 4 spaces (adjustable)
+                } else {
+                    current_indent++;
+                }
+                i++;
+            }
 
-	for (const auto &[type, pattern] : TokenPatterns) {
-		try {
-			compiledPatterns.emplace_back(type, regex("^" + pattern));
-		} catch (const regex_error &e) {
-			stringstream ss;
-			ss << "Regex error in token: " << type << "\nPattern: " << pattern
-			   << "\nError: " << e.what();
-			lexerError(current_line, current_col, ss.str(), "");
-		}
-	}
+            // Skip empty lines
+            if (i < code.length() && code[i] == '\n') {
+                i++;
+                current_line++;
+                current_col = 1;
+                continue;
+            }
 
-	while (!remaining.empty()) {
-		// Skip whitespace - update line/col for newlines
-		smatch whitespace_match;
-		if (regex_search(remaining, whitespace_match, whitespace_reg)) {
-			string whitespace = whitespace_match.str();
-			for (char c : whitespace) {
-				if (c == '\n') {
-					current_line++;
-					current_col = 1;
-				}
-			}
-			remaining = whitespace_match.suffix().str();
-			continue;
-		}
+            // Handle indentation changes
+            if (current_indent > indent_stack.back()) {
+                indent_stack.push_back(current_indent);
+                tokens.push_back({"INDENT", "", current_line, current_col});
+            } else if (current_indent < indent_stack.back()) {
+                while (current_indent < indent_stack.back()) {
+                    indent_stack.pop_back();
+                    tokens.push_back({"DEDENT", "", current_line, current_col});
+                }
+                if (current_indent != indent_stack.back()) {
+                    lexerError(current_line, current_col,
+                              "Indentation mismatch", "");
+                }
+            }
 
-		bool matched = false;
-		for (const auto &[type, reg] : compiledPatterns) {
-			smatch match;
-			if (regex_search(remaining, match, reg)) {
-				string token_value = match[0].str();
-				int token_line = current_line;
-				int token_col = current_col;
+            at_line_start = false;
+            current_col = 1 + current_indent;
+        }
 
-				// Create token with position info
-				Token token{
-					type, token_value, token_line,
-					token_col // Token occupies one column
-				};
+        // Handle newline
+        if (code[i] == '\n') {
+            // Only add NEWLINE if the line wasn't empty
+            if (!tokens.empty() && tokens.back().type != "NEWLINE" &&
+                tokens.back().type != "INDENT" && tokens.back().type != "DEDENT") {
+                tokens.push_back({"NEWLINE", "\n", current_line, current_col});
+            }
+            i++;
+            current_line++;
+            current_col = 1;
+            at_line_start = true;
+            continue;
+        }
 
-				// Update position: each token counts as 1 column
-				current_col++;
+        // Skip other whitespace (not at line start)
+        if (isspace(code[i])) {
+            i++;
+            current_col++;
+            continue;
+        }
 
-				// Update line counters for newlines in token
-				for (char c : token_value) {
-					if (c == '\n') {
-						current_line++;
-						current_col = 1;
-					}
-				}
+        // Check for comments
+        if (code[i] == '#') {
+            // Consume until end of line
+            while (i < code.length() && code[i] != '\n') {
+                i++;
+            }
+            continue;
+        }
 
-				tokens.push_back(token);
-				remaining = match.suffix().str();
-				matched = true;
-				break;
-			}
-		}
+        // Try to match tokens
+        bool matched = false;
+        string remaining = code.substr(i);
 
-		if (!matched) {
-			// Try to find the next whitespace or known delimiter
-			size_t nextPos = remaining.find_first_of(" \t\n;.,(){}[]");
-			string context = (nextPos == string::npos)
-								 ? remaining
-								 : remaining.substr(0, nextPos);
+        for (const auto &[type, pattern] : TokenPatterns) {
+            // Skip NEWLINE, INDENT, DEDENT as they're virtual
+            if (type == "NEWLINE" || type == "INDENT" || type == "DEDENT")
+                continue;
 
-			lexerError(current_line, current_col, "ไม่พบคำสั่งนี้ในภาษา",
-					   context);
+            regex reg("^" + pattern);
+            smatch match;
 
-			// Skip problematic character (UTF-8 aware)
-			if (!remaining.empty()) {
-				unsigned char c = static_cast<unsigned char>(remaining[0]);
-				size_t skip_bytes = 1;
-				if (c >= 0xC0 && c <= 0xDF)
-					skip_bytes = 2;
-				else if (c >= 0xE0 && c <= 0xEF)
-					skip_bytes = 3;
-				else if (c >= 0xF0 && c <= 0xF7)
-					skip_bytes = 4;
+            if (regex_search(remaining, match, reg)) {
+                string token_value = match[0].str();
 
-				remaining = remaining.substr(skip_bytes);
-				current_col++;
-			}
-		}
-	}
+                // Check if it's a string value and remove quotes
+                if (type == "STRING_VALUE") {
+                    token_value = token_value.substr(1, token_value.length() - 2);
+                    // Unescape string
+                    string unescaped;
+                    for (size_t j = 0; j < token_value.length(); j++) {
+                        if (token_value[j] == '\\' && j + 1 < token_value.length()) {
+                            switch (token_value[j + 1]) {
+                                case 'n': unescaped += '\n'; break;
+                                case 't': unescaped += '\t'; break;
+                                case 'r': unescaped += '\r'; break;
+                                case '"': unescaped += '"'; break;
+                                case '\\': unescaped += '\\'; break;
+                                default: unescaped += token_value[j + 1];
+                            }
+                            j++;
+                        } else {
+                            unescaped += token_value[j];
+                        }
+                    }
+                    token_value = unescaped;
+                }
 
-	tokens.push_back({"EOF", "", current_line, current_col});
-	return tokens;
+                tokens.push_back({type, token_value, current_line, current_col});
+
+                i += match[0].length();
+                current_col += count_utf8_chars(token_value);
+                matched = true;
+                break;
+            }
+        }
+
+        if (!matched) {
+            // Find the problematic token
+            size_t end = i;
+            while (end < code.length() && !isspace(code[end]) &&
+                   code[end] != ';' && code[end] != ',' &&
+                   code[end] != '(' && code[end] != ')' &&
+                   code[end] != '{' && code[end] != '}' &&
+                   code[end] != '[' && code[end] != ']') {
+                end++;
+            }
+            string context = code.substr(i, min((size_t)20, end - i));
+            lexerError(current_line, current_col, "ไม่พบคำสั่งนี้ในภาษา", context);
+            i = end;
+        }
+    }
+
+    // Add dedents at end of file
+    while (indent_stack.size() > 1) {
+        indent_stack.pop_back();
+        tokens.push_back({"DEDENT", "", current_line, current_col});
+    }
+
+    tokens.push_back({"EOF", "", current_line, current_col});
+    return tokens;
 }
 
 Value evalFunctionFromParts(const vector<string> &params, const json &body,
@@ -3796,7 +3894,7 @@ Value evalFunctionFromParts(const vector<string> &params, const json &body,
 
     // Bind arguments to parameters
     for (size_t i = 0; i < params.size(); i++) {
-        declare(params[i], args[i], false, 0, 0);
+        setvar(params[i], args[i], 0,0,false);
     }
 
     // Execute function body
@@ -3892,7 +3990,7 @@ std::string sanitize_for_json(const std::string& input) {
 }
 
 int main(int argc, char *argv[]) {
-	
+
 	ios::sync_with_stdio(false);
 	cout.tie(nullptr);
     SetConsoleOutputCP(65001);
