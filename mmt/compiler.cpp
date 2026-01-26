@@ -195,20 +195,12 @@ Value getVar(const string &name, int line, int column) {
 
 
 void setvar(const string &name, Value val, int line, int column, bool isconst) {
-
-
-
-
     // หาตำแหน่งตัวแปรใน scope ที่อยู่ลึกสุดที่เจอชื่อ name
     for (int i = env.size() - 1; i >= 0; i--) {
-
-
         if (env[i].count(name)) {
-
-            EnvStruct *entry = lookvar(name, 0, 0);
-
-            if (entry->isConst == true) {
-                cerr << "ไม่สามารถแปลี่ยนแปลงค่าคงที่" << name << "ได้ ที่บรรทัด " << line
+            // Found the variable in this scope
+            if (env[i][name].isConst) {
+                cerr << "ไม่สามารถเปลี่ยนแปลงค่าคงที่ " << name << " ได้ ที่บรรทัด " << line
                      << " คอลัมน์ " << column << "";
                 std::exit(1);
             }
@@ -217,11 +209,8 @@ void setvar(const string &name, Value val, int line, int column, bool isconst) {
         }
     }
 
-
-
+    // Variable not found, create new one
     env.back()[name] = {val, isconst};
-
-
 }
 
 
@@ -1089,13 +1078,24 @@ Value evalStatement(const json &stmt) {
 		return nullptr;
 	}
 
- else if (type == "assignment") {
-		const auto &target = stmt["variable"];
-		Value val = evalExpr(stmt["value"]);
-		if (target["type"] == "variable") {
-			string name = target["name"];
-			setvar(name, val, stmt["line"], stmt["column"],  stmt["isconst"] == "true");
-		} else if (target["type"] == "ObjectAccess") {
+	else if (type == "assignment") {
+	    const auto &target = stmt["variable"];
+	    Value val = evalExpr(stmt["value"]);
+	    if (target["type"] == "variable") {
+	        string name = target["name"];
+
+	        // Fix: Check if isconst exists and get it as boolean
+	        bool isConst = false;
+	        if (stmt.contains("isconst")) {
+	            if (stmt["isconst"].is_boolean()) {
+	                isConst = stmt["isconst"].get<bool>();
+	            } else if (stmt["isconst"].is_string()) {
+	                isConst = (stmt["isconst"].get<string>() == "true");
+	            }
+	        }
+
+	        setvar(name, val, stmt["line"], stmt["column"], isConst);
+	    } else if (target["type"] == "ObjectAccess") {
 			Value obj = evalExpr(target["object"]);
 			Value key = evalExpr(target["key"]);
 			if (!holds_alternative<ValueHolder::ObjecT>(obj->data)) {
@@ -1132,7 +1132,7 @@ Value evalStatement(const json &stmt) {
 		string in;
 		getline(cin, in);
 		setvar(name, make_shared<ValueHolder>(in), stmt["line"],
-			   stmt["column"],stmt["isconst"]);
+			   stmt["column"],false);
 		return nullptr;
 	} else if (type == "Break") {
 		throw BreakException();
@@ -1591,11 +1591,11 @@ public:
 		varname(move(varName)), value(move(value)), ASTNode(t) , isconst(move(isconst)) {}
 	std::string s =  isconst? "true" : "false";
 	string print() const override {
-		return "{\"type\":\"assignment\",\"variable\":" + varname->print() +
-			   ",\"value\":" + (value ? value->print() : "null") +
-			   ",\"line\":" + to_string(token.line) +
-			   ",\"column\":" + to_string(token.column) + ","
-			   "\"isconst\" : " + s +  " }";
+	    return "{\"type\":\"assignment\",\"variable\":" + varname->print() +
+	           ",\"value\":" + (value ? value->print() : "null") +
+	           ",\"line\":" + to_string(token.line) +
+	           ",\"column\":" + to_string(token.column) + ","
+	           "\"isconst\" : " + s +  " }";
 	}
 };
 
@@ -2927,14 +2927,26 @@ public:
 	                while (peek().type != "CLOSE_PAREN" &&
 	                       peek().type != "EOF")
 	                {
+	        		    while (peek().type == "NEWLINE") {
+	        		        advance();
+	        		    }
 	                    args.push_back(parseExpression());
+	            	    while (peek().type == "NEWLINE") {
+	            	        advance();
+	            	    }
 	                    if (match("COMMA")) {
 	                        continue;
 	                    } else {
 	                        break;
 	                    }
-	                }
+	        		    while (peek().type == "NEWLINE") {
+	        		        advance();
+	        		    }
 
+	                }
+	    		    while (peek().type == "NEWLINE") {
+	    		        advance();
+	    		    }
 	                if (!match("CLOSE_PAREN")) {
 	                    syntaxError(peek(), "ขาด ) หลังการเรียก โปรแกรม");
 	                }
@@ -3064,13 +3076,26 @@ public:
 		if (!match("BRACKET_OPENING")) {
 			syntaxError(peek(), "ขาดเครื่องหมาย [ ใน ชุดข้อมูล");
 		}
+	    while (peek().type == "NEWLINE") {
+	        advance();
+	    }
+
 		vector<ASTNodePtr> element;
 		while (peek().type != "BRACKET_CLOSEING" &&
 			   peek().type != "EOF") {
+		    while (peek().type == "NEWLINE") {
+		        advance();
+		    }
 			element.push_back(parseArrayElement());
+		    while (peek().type == "NEWLINE") {
+		        advance();
+		    }
 			if (!match("COMMA")) {
 				break;
 			}
+		    while (peek().type == "NEWLINE") {
+		        advance();
+		    }
 		}
 		if (!match("BRACKET_CLOSEING")) {
 			syntaxError(peek(), "ขาดเครื่องหมาย ] ในชุดข้อมูล");
@@ -3099,28 +3124,72 @@ public:
 			   dynamic_cast<NullNode *>(node.get());
 	}
 	ASTNodePtr parseObectLiteral() {
-		Token t = peek();
-		if (!match("OPEN_BRACKETS")) {
-			syntaxError(peek(),
-						"ขาดเครื่องหมาย { ใน อ็อบเจกต์");
-		}
-		vector<pair<ASTNodePtr, ASTNodePtr>> entrity;
-		while (peek().type != "CLOSE_BRACKETS" &&
-			   peek().type != "EOF") {
-			auto key = parseObjectKey();
-			if (!match("COLON")) {
-				syntaxError(peek(),"ขาดเครื่องหมาย : ใน อ็อบเจกต์");
-			}
-			auto value = parseArrayElement();
-			entrity.emplace_back(key, value);
-			if (!match("COMMA")) {
-				break;
-			}
-		}
-		if (!match("CLOSE_BRACKETS")) {
-			syntaxError(peek(),"ขาดเครื่องหมาย } ใน อ็อบเจกต์");
-		}
-		return make_shared<ObjectLiteralNode>(entrity, t);
+	    Token t = peek();
+	    if (!match("OPEN_BRACKETS")) {
+	        syntaxError(peek(), "ขาดเครื่องหมาย { ใน อ็อบเจกต์");
+	    }
+
+	    vector<pair<ASTNodePtr, ASTNodePtr>> entrity;
+	    while (peek().type == "NEWLINE") {
+	        advance();
+	    }
+
+	    while (peek().type != "CLOSE_BRACKETS" && peek().type != "EOF") {
+	        while (peek().type == "NEWLINE") {
+	            advance();
+	        }
+
+	        if (peek().type == "CLOSE_BRACKETS") {
+	            break;
+	        }
+
+	        auto key = parseObjectKey();
+
+	        while (peek().type == "NEWLINE") {
+	            advance();
+	        }
+
+	        if (!match("COLON")) {
+	            syntaxError(peek(), "ขาดเครื่องหมาย : ใน อ็อบเจกต์");
+	        }
+
+	        while (peek().type == "NEWLINE") {
+	            advance();
+	        }
+	        auto value = parseArrayElement();
+	        entrity.emplace_back(key, value);
+
+	        while (peek().type == "NEWLINE") {
+	            advance();
+	        }
+
+	        if (peek().type == "CLOSE_BRACKETS") {
+	            break;
+	        }
+
+	        if (!match("COMMA")) {
+
+	            break;
+	        }
+
+	        while (peek().type == "NEWLINE") {
+	            advance();
+	        }
+
+	        if (peek().type == "CLOSE_BRACKETS") {
+	            break;
+	        }
+	    }
+
+	    while (peek().type == "NEWLINE") {
+	        advance();
+	    }
+
+	    if (!match("CLOSE_BRACKETS")) {
+	        syntaxError(peek(), "ขาดเครื่องหมาย } ใน อ็อบเจกต์");
+	    }
+
+	    return make_shared<ObjectLiteralNode>(entrity, t);
 	}
 	ASTNodePtr parseObjectKey() {
 		if (peek().type != "STRING_VALUE") {
@@ -3179,15 +3248,22 @@ public:
 			Token t = peek();
 			if (match("OPEN_PAREN")) {
 				vector<ASTNodePtr> expressions;
-
+			    while (peek().type == "NEWLINE") {
+			        advance();
+			    }
 				// Parse first expression
 				expressions.push_back(parseExpression());
 
 				// Parse additional expressions
 				while (match("COMMA")) {
+				    while (peek().type == "NEWLINE") {
+				        advance();
+				    }
 					expressions.push_back(parseExpression());
 				}
-
+			    while (peek().type == "NEWLINE") {
+			        advance();
+			    }
 				if (!match("CLOSE_PAREN"))
 					syntaxError(peek(), "ที่ แสดงผล ขาด )");
 
@@ -3212,16 +3288,27 @@ public:
 	    if (!match("OPEN_PAREN")) {
 	        syntaxError(peek(), "ต้องมี ( ที่ ทำซ้ำ");
 	    }
+	    while (peek().type == "NEWLINE") {
+	        advance();
+	    }
 	    vector<ASTNodePtr>ran;
 
 	    while(peek().type != "CLOSE_PAREN"){
+	        while (peek().type == "NEWLINE") {
+	            advance();
+	        }
 	    	ran.push_back(parseExpression());
 			if (!match("COMMA")) {
 				break;
 			}
+		    while (peek().type == "NEWLINE") {
+		        advance();
+		    }
 	    }
 
-
+	    while (peek().type == "NEWLINE") {
+	        advance();
+	    }
 
 	    if (!match("CLOSE_PAREN")) {
 	        syntaxError(peek(), "ต้องมี ) ที่ ทำซ้ำ");
@@ -3269,9 +3356,15 @@ public:
 	    if (!match("OPEN_PAREN")) {
 
 	    }
+	    while (peek().type == "NEWLINE") {
+	        advance();
+	    }
 	    ASTNodePtr cond = nullptr;
 	    if (peek().type != "CLOSE_PAREN") {
 	        cond = parseExpression();
+	    }
+	    while (peek().type == "NEWLINE") {
+	        advance();
 	    }
 	    if (!match("CLOSE_PAREN")) {
 
@@ -3321,12 +3414,16 @@ public:
 	    if (!match("OPEN_PAREN")) {
 
 	    }
-
+	    while (peek().type == "NEWLINE") {
+	        advance();
+	    }
 	    ASTNodePtr cond = nullptr;
 	    if (peek().type != "CLOSE_PAREN" && peek().type != "EOF") {
 	        cond = parseExpression();
 	    }
-
+	    while (peek().type == "NEWLINE") {
+	        advance();
+	    }
 	    if (!match("CLOSE_PAREN")) {
 
 	    }
@@ -3451,12 +3548,17 @@ public:
 		if (!match("OPEN_PAREN")) {
 			syntaxError(peek(), "ขาด ( ในการประกาศโปรแกรม");
 		}
+	    while (peek().type == "NEWLINE") {
+	        advance();
+	    }
 		vector<ASTNodePtr> pramas;
 		while (peek().type != "CLOSE_PAREN" &&
 			   peek().type != "EOF") {
 			//pramas.push_back(parseVariableDecleartion());
 			Token t = peek();
-
+		    while (peek().type == "NEWLINE") {
+		        advance();
+		    }
 			if (peek().type !=
 				"IDENTIFIER") {
 				syntaxError(peek(),"ไม่มีชื่อตัวแปร");
@@ -3468,12 +3570,20 @@ public:
 				advance();
 				initialValue = parseExpression();
 			}
-
+		    while (peek().type == "NEWLINE") {
+		        advance();
+		    }
 			pramas.push_back(make_shared<AssignmentNode>(varname, initialValue, t,true));
 			if (!match("COMMA")) {
 				break;
 			}
+		    while (peek().type == "NEWLINE") {
+		        advance();
+		    }
 		}
+	    while (peek().type == "NEWLINE") {
+	        advance();
+	    }
 		if (!match("CLOSE_PAREN")) {
 			syntaxError(peek(), "ขาด ( ในการประกาศโปรแกรม");
 		}
@@ -3595,7 +3705,7 @@ public:
 	        return parseImport();
 	    } else if (peek().type == "EXPORT") {
 	        return parseExport();
-	    }else if (peek().type == "IDENTIFIER") {
+	    }else if (peek().type == "IDENTIFIER" || peek().type == "CONST") {
 	        // ใช้ parsepimary() ที่มีอยู่แล้วซึ่งจัดการ chain อยู่แล้ว
 	        ASTNodePtr expr = parseExpression();
 
@@ -3651,7 +3761,6 @@ void update_counters(const string &str, size_t &line, size_t &col) {
 
 // command base
 vector<pair<string, string>> TokenPatterns = {
-    {"COMMENT", R"(#[\s\S]*?#)"},
     {"PROGRAM", "โปรแกรม"},
     {"EXITPROCESS", "จบการทำงาน"},
 	{"OPEN_BRACKETS", "\\{"},
@@ -3807,12 +3916,23 @@ vector<Token> lexer(const string &code) {
 
         // Check for comments
         if (code[i] == '#') {
-            // Consume until end of line
+        	i++;
             while (i < code.length() && code[i] != '\n') {
                 i++;
             }
             continue;
+        }else if (code[i] == '/' && i + 1 < code.length() && code[i + 1] == '*') {
+            i += 2;
+
+            while (i + 1 < code.length() &&
+                   !(code[i] == '*' && code[i + 1] == '/')) {
+                i++;
+            }
+
+            i += 2;
+            continue;
         }
+
 
         // Try to match tokens
         bool matched = false;
