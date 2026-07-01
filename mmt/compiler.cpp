@@ -1,3 +1,26 @@
+
+/*
+this interpreter was created by Mr.Phawat Matitham.
+created on 2 Apr 2025.
+helped by Claude , Chat-gpt , Gemini ,DeepseekAI
+
+_______    __   __    _______    _     _    _______    _______ 
+|       |  |  | |  |  |   _   |  | | _ | |  |   _   |  |       |
+|    _  |  |  |_|  |  |  |_|  |  | || || |  |  |_|  |  |_     _|
+|   |_| |  |       |  |       |  |       |  |       |    |   |  
+|    ___|  |       |  |       |  |       |  |       |    |   |  
+|   |      |   _   |  |   _   |  |   _   |  |   _   |    |   |  
+|___|      |__| |__|  |__| |__|  |__| |__|  |__| |__|    |___|
+
+
+_____________________________
+|	YOU SHOULD TYPE :		|
+|	mmt						|
+|	AND						|
+|	mmt donut               |
+|	IN THE TERMINAL						|
+|___________________________|
+*/
 #include "json.hpp"
 #include <cmath>
 #include <cstdint>
@@ -17,6 +40,10 @@
 #include <variant>
 #include <vector>
 #include <windows.h>
+#include <cstdio>
+#include <cstring>
+#include <unistd.h>
+
 using json = nlohmann::json;
 using namespace std;
 namespace fs = std::filesystem;
@@ -82,7 +109,6 @@ struct ValueHolder {
 };
 struct EnvStruct {
 	Value value;
-	// std::string type;
 	bool isConst;
 };
 
@@ -131,6 +157,7 @@ string valueToString(const Value& val) {
 
 void syntaxError(const Token &token, const string &msg) {
 	stringstream ss;
+	cout << "\033[31m";
 	ss << "ไวยากรณ์ผิดพลาดที่บรรทัด " << token.line << " คอลัมน์ " << token.column
 	   << ": " << msg << " (พบ '" << token.value << "')";
 	cerr << ss.str() << "";
@@ -139,6 +166,7 @@ void syntaxError(const Token &token, const string &msg) {
 void lexerError(size_t line, size_t col, const string &msg,
 				const string &context) {
 	stringstream ss;
+	cout << "\033[31m";
 	ss << "Lexer error at line " << line << ", column " << col << ": " << msg
 	   << "\nContext: '" << context << "'";
 	cerr << ss.str() << "";
@@ -152,6 +180,7 @@ unordered_map<string, functionDef> functionTable;
 
 bool getBool(Value val) {
 	if (!val) {
+		cout << "\033[31m";
 		cerr << "ค่าที่ส่งมาตรวจสอบเป็น nullptr\n";
 		exit(1);
 	}
@@ -159,7 +188,7 @@ bool getBool(Value val) {
 	if (holds_alternative<bool>(val->data)) {
 		return get<bool>(val->data);
 	}
-
+	cout << "\033[31m";
 	cerr << "ค่าที่ส่งมาตรวจสอบไม่ใช่ boolean\n";
 	exit(1);
 }
@@ -173,7 +202,8 @@ EnvStruct *lookvar(const string &name, int line, int column) {
 		}
 
 	}
-	cerr << "ไม่พบตัวแปร " << name << " ในขอบเขตนี้ ที่บรรทัด " << line << "คอลัม์"
+	cout << "\033[31m";
+	cerr << "ไม่พบตัวแปร " << name << " ในขอบเขตนี้ ที่บรรทัด " << line << "คอลัมน์"
 		 << column << "";
 	exit(1);
 }
@@ -184,7 +214,7 @@ Value getVar(const string &name, int line, int column) {
             return (*it)[name].value;
         }
     }
-
+	cout << "\033[31m";
     cerr << "ไม่พบตัวแปร " << name << " ในขอบเขตนี้ ที่บรรทัด "
          << line << " คอลัมน์ " << column << endl;
     exit(1);
@@ -200,6 +230,7 @@ void setvar(const string &name, Value val, int line, int column, bool isconst) {
         if (env[i].count(name)) {
             // Found the variable in this scope
             if (env[i][name].isConst) {
+				cout << "\033[31m";
                 cerr << "ไม่สามารถเปลี่ยนแปลงค่าคงที่ " << name << " ได้ ที่บรรทัด " << line
                      << " คอลัมน์ " << column << "";
                 std::exit(1);
@@ -219,6 +250,7 @@ void setvar(const string &name, Value val, int line, int column, bool isconst) {
 Value evalExpr(const json &expr) {
 
 	if (!expr.is_object()) {
+		cout << "\033[31m";
 		cerr << "❌ expr ไม่ใช่ json object แต่เป็น: " << expr << "";
 		exit(1);
 	}
@@ -252,6 +284,7 @@ Value evalExpr(const json &expr) {
 			Value keyVal = evalExpr(prop["key"]);
 
 			if (!holds_alternative<string>(keyVal->data)) {
+				cout << "\033[31m";
 				cerr << "ผิดพลาด: คีย์ในออบเจ็กต์ต้องเป็นข้อความ ที่บรรทัด: "
 					 << prop["key"]["line"]
 					 << " คอลัมน์: " << prop["key"]["column"] << "";
@@ -278,6 +311,7 @@ Value evalExpr(const json &expr) {
 			} else if (holds_alternative<double>(operand->data)) {
 				return make_shared<ValueHolder>(!get<double>(operand->data));
 			}
+			cout << "\033[31m";
 			cerr << "ไม่สามารถหา นิเสธของ " << valueToString(operand) << "";
 			exit(1);
 		} else if (op == "BITWISE_NOT") {
@@ -286,18 +320,21 @@ Value evalExpr(const json &expr) {
 			} else if (holds_alternative<int>(operand->data)) {
 				return make_shared<ValueHolder>(~get<int>(operand->data));
 			}
+			cout << "\033[31m";
 			cerr << "ไม่สามารถ สลับบิต ของ " << valueToString(operand) << "";
 			exit(1);
 		} else if (op == "INCREMENT") {
 			if (holds_alternative<int>(operand->data)) {
 				return make_shared<ValueHolder>(get<int>(operand->data)++);
 			}
+			cout << "\033[31m";
 			cerr << "ไม่สามารถ เพิ่มค่า ของ " << valueToString(operand) << "";
 			exit(1);
 		} else if (op == "DECREMENT") {
 			if (holds_alternative<int>(operand->data)) {
 				return make_shared<ValueHolder>(get<int>(operand->data)--);
 			}
+			cout << "\033[31m";
 			cerr << "ไม่สามารถ ลดค่า ของ " << valueToString(operand) << "";
 			exit(1);
 		}
@@ -307,6 +344,7 @@ Value evalExpr(const json &expr) {
 					}else if (holds_alternative<double>(operand->data)) {
 						return make_shared<ValueHolder>(-(get<double>(operand->data))--);
 					}
+					cout << "\033[31m";
 					cerr << "ค่านี้ " << valueToString(operand) <<"ไม่สามารถติดลบได้"<< "";
 					exit(1);
 				}
@@ -317,6 +355,7 @@ Value evalExpr(const json &expr) {
 		} else if (holds_alternative<double>(val->data)) {
 			return make_shared<ValueHolder>(log(get<double>(val->data)));
 		}
+		cout << "\033[31m";
 		cerr << "ไม่สามารถหาค่า ลอการิทึมธรรมชาติ ของ" << val
 			 << " ที่บรรทัด: " << expr["line"] << " คอลัมน์: " << expr["column"]
 			 << "";
@@ -343,7 +382,7 @@ Value evalExpr(const json &expr) {
 				return make_shared<ValueHolder>(
 					pow(get<int>(left->data), get<double>(right->data)));
 			}
-
+			cout << "\033[31m";
 			cerr << "ไม่สามารถยกกำลัง " << valueToString(left) << " กับ " << valueToString(right)
 				 << " ที่บรรทัด: " << expr["line"] << " คอลัมน์: " << expr["column"]
 				 << "";
@@ -366,7 +405,7 @@ Value evalExpr(const json &expr) {
 				return make_shared<ValueHolder>(
 					pow(get<double>(right->data), 1.0 / get<int>(left->data)));
 			}
-
+			cout << "\033[31m";
 			cerr << "ไม่สามารถถอดรากที่ " << valueToString(left) << " ของ " << valueToString(right)
 				 << " ที่บรรทัด: " << expr["line"] << " คอลัมน์: " << expr["column"]
 				 << "";
@@ -389,6 +428,7 @@ Value evalExpr(const json &expr) {
 				return make_shared<ValueHolder>(get<double>(left->data) *
 												get<int>(right->data));
 			}
+			cout << "\033[31m";
 			cerr << "ไม่สามารถคูณ " << valueToString(left) << "กับ" << valueToString(right)
 				 << " ที่บรรทัด: " << expr["line"] << " คอลัมน์: " << expr["column"]
 				 << "";
@@ -412,6 +452,7 @@ Value evalExpr(const json &expr) {
 				return make_shared<ValueHolder>(get<double>(left->data) /
 												get<int>(right->data));
 			}
+			cout << "\033[31m";
 			cerr << "ไม่สามารถหาร " << valueToString(left) << "กับ" << valueToString(right)
 				 << " ที่บรรทัด: " << expr["line"] << " คอลัมน์: " << expr["column"]
 				 << "";
@@ -435,6 +476,7 @@ Value evalExpr(const json &expr) {
 				return make_shared<ValueHolder>(
 					floor(get<double>(left->data) / get<int>(right->data)));
 			}
+			cout << "\033[31m";
 			cerr << "ไม่สามารถหารเอาส่วน " << valueToString(left) << "กับ" << valueToString(right)
 				 << " ที่บรรทัด: " << expr["line"] << " คอลัมน์: " << expr["column"]
 				 << "";
@@ -460,6 +502,7 @@ Value evalExpr(const json &expr) {
 					fmod(get<double>(left->data),
 						 static_cast<double>(get<int>(right->data))));
 			}
+			cout << "\033[31m";
 			cerr << "ไม่สามารถMOD " << valueToString(left) << "กับ" << valueToString(right)
 				 << " ที่บรรทัด: " << expr["line"] << " คอลัมน์: " << expr["column"]
 				 << "";
@@ -503,7 +546,7 @@ Value evalExpr(const json &expr) {
 				merged.insert(merged.end(), rightarr.begin(), rightarr.end());
 				return make_shared<ValueHolder>(merged);
 			}
-
+			cout << "\033[31m";
 			cerr << "ไม่สามารถบวก " << valueToString(left) << " กับ " << valueToString(right)
 				 << " ที่บรรทัด: " << expr["line"] << " คอลัมน์: " << expr["column"]
 				 << "";
@@ -526,6 +569,7 @@ Value evalExpr(const json &expr) {
 				return make_shared<ValueHolder>(
 					get<double>(left->data) - get<int>(right->data));
 			}
+			cout << "\033[31m";
 			cerr << "ไม่สามารถลบ " << valueToString(left) << " กับ " << valueToString(right)
 				 << " ที่บรรทัด: " << expr["line"] << " คอลัมน์: " << expr["column"]
 				 << "";
@@ -536,6 +580,7 @@ Value evalExpr(const json &expr) {
 				return make_shared<ValueHolder>(get<int>(left->data)
 												<< get<int>(right->data));
 			}
+			cout << "\033[31m";
 			cerr << "ไม่สามารถ เลื่อนบิตของ " << valueToString(left) << " ไปทางซ้าย " << valueToString(right)
 				 << "ตำแหน่ง ที่บรรทัด: " << expr["line"]
 				 << " คอลัมน์: " << expr["column"] << "";
@@ -546,6 +591,7 @@ Value evalExpr(const json &expr) {
 				return make_shared<ValueHolder>(get<int>(left->data) >>
 												get<int>(right->data));
 			}
+			cout << "\033[31m";
 			cerr << "ไม่สามารถ เลื่อนบิตของ " << valueToString(left) << " ไปทางซ้าย " << valueToString(right)
 				 << "ตำแหน่ง ที่บรรทัด: " << expr["line"]
 				 << " คอลัมน์: " << expr["column"] << "";
@@ -568,6 +614,7 @@ Value evalExpr(const json &expr) {
 				return make_shared<ValueHolder>(
 					get<double>(left->data) > get<int>(right->data));
 			}
+			cout << "\033[31m";
 			cerr << "ไม่สามารถเปรียบเทียบมากกว่า " << valueToString(left) << " กับ " << valueToString(right)
 				 << " ที่บรรทัด: " << expr["line"] << " คอลัมน์: " << expr["column"]
 				 << "";
@@ -590,6 +637,7 @@ Value evalExpr(const json &expr) {
 				return make_shared<ValueHolder>(
 					get<double>(left->data) < get<int>(right->data));
 			}
+			cout << "\033[31m";
 			cerr << "ไม่สามารถเปรียบเทียบน้อยกว่า " << valueToString(left) << " กับ " << valueToString(right)
 				 << " ที่บรรทัด: " << expr["line"] << " คอลัมน์: " << expr["column"]
 				 << "";
@@ -612,6 +660,7 @@ Value evalExpr(const json &expr) {
 				return make_shared<ValueHolder>(
 					get<double>(left->data) >= get<int>(right->data));
 			}
+			cout << "\033[31m";
 			cerr << "ไม่สามารถเปรียบเทียบมากกว่าหรือเท่ากับ " << valueToString(left) << " กับ "
 				 << valueToString(right) << " ที่บรรทัด: " << expr["line"]
 				 << " คอลัมน์: " << expr["column"] << "";
@@ -634,6 +683,7 @@ Value evalExpr(const json &expr) {
 				return make_shared<ValueHolder>(
 					get<double>(left->data) <= get<int>(right->data));
 			}
+			cout << "\033[31m";
 			cerr << "ไม่สามารถเปรียบเทียบน้อยกว่าหรือเท่ากับ " << valueToString(left) << " กับ "
 				 << valueToString(right) << " ที่บรรทัด: " << expr["line"]
 				 << " คอลัมน์: " << expr["column"] << "";
@@ -661,6 +711,7 @@ Value evalExpr(const json &expr) {
 				return make_shared<ValueHolder>(get<bool>(left->data) &
 												get<int>(right->data));
 			}
+			cout << "\033[31m";
 			cerr << "ไม่สามารถใช้ ตัวนำเนินการ & กับ " << valueToString(left) << " และ " << valueToString(right)
 				 << " ที่บรรทัด: " << expr["line"] << " คอลัมน์: " << expr["column"]
 				 << "";
@@ -684,6 +735,7 @@ Value evalExpr(const json &expr) {
 				return make_shared<ValueHolder>(get<bool>(left->data) ^
 												get<int>(right->data));
 			}
+			cout << "\033[31m";
 			cerr << "ไม่สามารถใช้ ตัวนำเนินการ ซอร์ กับ " << valueToString(left) << " และ " << valueToString(right)
 				 << " ที่บรรทัด: " << expr["line"] << " คอลัมน์: " << expr["column"]
 				 << "";
@@ -706,6 +758,7 @@ Value evalExpr(const json &expr) {
 				return make_shared<ValueHolder>(get<bool>(left->data) |
 												get<int>(right->data));
 			}
+			cout << "\033[31m";
 			cerr << "ไม่สามารถใช้ ตัวนำเนินการ | กับ " << valueToString(left) << " และ " << (right)
 				 << " ที่บรรทัด: " << expr["line"] << " คอลัมน์: " << expr["column"]
 				 << "";
@@ -728,6 +781,7 @@ Value evalExpr(const json &expr) {
 				return make_shared<ValueHolder>(get<bool>(left->data) &&
 												get<int>(right->data));
 			}
+			cout << "\033[31m";
 			cerr << "ไม่สามารถใช้ ตัวนำเนินการ 'และ' กับ " << valueToString(left) << " และ "
 				 << valueToString(right) << " ที่บรรทัด: " << expr["line"]
 				 << " คอลัมน์: " << expr["column"] << "";
@@ -750,6 +804,7 @@ Value evalExpr(const json &expr) {
 				return make_shared<ValueHolder>(get<bool>(left->data) ||
 												get<int>(right->data));
 			}
+			cout << "\033[31m";
 			cerr << "ไม่สามารถใช้ ตัวนำเนินการ 'หรือ' กับ " << valueToString(left) << " และ "
 				 << valueToString(right) << " ที่บรรทัด: " << expr["line"]
 				 << " คอลัมน์: " << expr["column"] << "";
@@ -798,7 +853,7 @@ Value evalExpr(const json &expr) {
 				return make_shared<ValueHolder>(get<bool>(exp->data));
 			}
 		}
-
+		cout << "\033[31m";
 		cerr << "ไม่สามารถแปลงเป็นชนิด: " << typE << " ที่บรรทัด: " << expr["line"]
 			 << " คอลัมน์: " << expr["column"] << "";
 		exit(1);
@@ -813,8 +868,9 @@ Value evalExpr(const json &expr) {
 	    } else {
 	        Value keyVal = evalExpr(keyNode);
 	        if (!std::holds_alternative<std::string>(keyVal->data)) {
+				cout << "\033[31m";
 	            std::cerr << "ผิดพลาด: ออบเจ็ต คีย์ต้องเป็น ข้อความ ที่บรรทัด "
-	                      << expr["line"] << ", คอลัม์ " << expr["column"] << "";
+	                      << expr["line"] << ", คอลัมน์ " << expr["column"] << "";
 	            exit(1);
 	        }
 	        key = std::get<std::string>(keyVal->data);
@@ -822,16 +878,18 @@ Value evalExpr(const json &expr) {
 
 	    // ส่วนที่เหลือเหมือนเดิม
 	    if (!std::holds_alternative<ValueHolder::ObjecT>(obj->data)) {
+			cout << "\033[31m";
 	        std::cerr << "ผิดพลาด: ไม่สามารถเข้าถึง คีย์ '" << key
 	                  << "' บน ออบเจกต์ที่ยังไม่ประกาศ ที่บรรทัด " << expr["line"]
-	                  << ", คอลัม์ " << expr["column"] << "";
+	                  << ", คอลัมน์ " << expr["column"] << "";
 	        exit(1);
 	    }
 
 	    auto &objMap = std::get<ValueHolder::ObjecT>(obj->data);
 	    if (!objMap.count(key)) {
+			cout << "\033[31m";
 	        std::cerr << "พิดพลาด: คีย์นี้ '" << key << "' ไม่พบใน ออบเจกต์ ที่บรรทัด "
-	                  << expr["line"] << ", คอลัม์ " << expr["column"] << "";
+	                  << expr["line"] << ", คอลัมน์ " << expr["column"] << "";
 	        exit(1);
 	    }
 
@@ -848,11 +906,13 @@ Value evalExpr(const json &expr) {
 			if(d == static_cast<int>(d) && d>=0){
 				index = static_cast<int>(get<double>(indexVal->data));
 			}else{
+				cout << "\033[31m";
 				cerr<<"ผิดพลาด: ไม่สามารถเข้นถึงชุดข้อมูลด้วย ดัชนีที่เป็นทศนิยม ที่ บรรทัด "
 					  << expr["line"] << ", คอลัมน์ " << expr["column"] <<"";
 				exit(1);
 			}
 		}else{
+			cout << "\033[31m";
 			cerr<<"ผิดพลาด: ไม่สามารถเข้นถึงชุดข้อมูลด้วย ดัชนีที่ไม่ใช่ตัวเลข ที่ บรรทัด "
 				  << expr["line"] << ", คอลัมน์ " << expr["column"] <<"";
 		}
@@ -861,6 +921,7 @@ Value evalExpr(const json &expr) {
 
 		if (!(std::holds_alternative<ValueHolder::ArraY>(arrayVal->data) ||
 			  std::holds_alternative<std::string>(arrayVal->data))) {
+				cout << "\033[31m";
 			std::cerr << "ผิดพลาด: ไม่สามารถเข้าถึงข้อมูลประเภทนี้ด้วยดัชนี ที่ บรรทัด "
 					  << expr["line"] << ", คอลัมน์ " << expr["column"] << "";
 			exit(1);
@@ -869,6 +930,7 @@ Value evalExpr(const json &expr) {
 		if (std::holds_alternative<ValueHolder::ArraY>(arrayVal->data)) {
 			auto &arr = std::get<ValueHolder::ArraY>(arrayVal->data);
 			if (index >= static_cast<int>(arr.size())) {
+				cout << "\033[31m";
 				std::cerr << "ผิดพลาด : ดัชนีเกินขอบเขต ที่ บรรทัด "
 						  << expr["line"] << ", คอลัมน์ " << expr["column"] << "";
 				exit(1);
@@ -877,6 +939,7 @@ Value evalExpr(const json &expr) {
 		} else {
 			auto &arr = std::get<std::string>(arrayVal->data);
 			if (index >= static_cast<int>(arr.size())) {
+				cout << "\033[31m";
 				std::cerr << "ผิดพลาด : ดัชนีเกินขอบเขต ที่ บรรทัด "
 						  << expr["line"] << ", คอลัมน์ " << expr["column"] << "";
 				exit(1);
@@ -890,6 +953,7 @@ Value evalExpr(const json &expr) {
 	    try {
 	        funcname = expr["name"]["name"].get<string>();
 	    } catch (json::type_error& e) {
+			cout << "\033[31m";
 	        cerr << "ชื่อโปรแกรมไม่ถูกต้อง (ต้องเป็นตัวแปร) ที่บรรทัด "
 	             << expr["line"] << " คอลัมน์ " << expr["column"] << "";
 	        exit(1);
@@ -900,6 +964,7 @@ Value evalExpr(const json &expr) {
 	        try {
 	            ns = expr["namespace"]["name"].get<string>();
 	        } catch (json::type_error& e) {
+				cout << "\033[31m";
 	            cerr << "Namespace ต้องเป็นตัวแปร ที่บรรทัด "
 	                 << expr["line"] << " คอลัมน์ " << expr["column"] << "";
 	            exit(1);
@@ -914,12 +979,14 @@ Value evalExpr(const json &expr) {
 	    // เรียกจาก namespace
 	    if (!ns.empty()) {
 	        if (importModules.find(ns) == importModules.end()) {
+				cout << "\033[31m";
 	            cerr << "ไม่พบเนมสเปซ: \"" << ns << "\" ที่บรรทัด "
 	                 << expr["line"] << " คอลัมน์ " << expr["column"] << "";
 	            exit(1);
 	        }
 	        auto &functions = importModules[ns];
 	        if (functions.find(funcname) == functions.end()) {
+				cout << "\033[31m";
 	            cerr << "โปรแกรม \"" << funcname << "\" ไม่พบในเนมสเปซ \"" << ns
 	                 << "\" ที่บรรทัด " << expr["line"] << " คอลัมน์ " << expr["column"] << "";
 	            exit(1);
@@ -930,12 +997,14 @@ Value evalExpr(const json &expr) {
 	    // เรียกฟังก์ชันโลคัล
 	    else {
 	        if (functionTable.find(funcname) == functionTable.end()) {
+				cout << "\033[31m";
 	            cerr << "โปรแกรม '" << funcname << "' ยังไม่ถูกประกาศ ที่บรรทัด "
 	                 << expr["line"] << " คอลัมน์ " << expr["column"] << "";
 	            exit(1);
 	        }
 	        const functionDef& def = functionTable[funcname];
 	        if (args.size() != def.parameter.size()) {
+				cout << "\033[31m";
 	            cerr << "จำนวนอากิวเมนต์ไม่ตรงกัน สำหรับ '" << funcname << "' ต้องการ "
 	                 << def.parameter.size() << ", ได้รับ " << args.size()
 	                 << " ที่บรรทัด " << expr["line"] << " คอลัมน์ " << expr["column"] << "";
@@ -956,12 +1025,137 @@ Value evalExpr(const json &expr) {
 			return std::make_shared<ValueHolder>(
 				static_cast<int>(std::get<string>(target->data).size()));
 		}
+		cout << "\033[31m";
 		std::cerr << "เกิดข้อพิดพลาด: ขนาด() ไม่รองรับข้อมูลประเภทนี้ ที่บรรทัด : "
-				  << expr["line"] << ", คอลัม์: " << expr["column"] << "";
+				  << expr["line"] << ", คอลัมน์: " << expr["column"] << "";
 		exit(1);
 	}
+	else if (type == "Push") {
+    Value arrayVal = evalExpr(expr["array"]);
+    Value value = evalExpr(expr["value"]);
+    if (holds_alternative<ValueHolder::ArraY>(arrayVal->data)) {
+        get<ValueHolder::ArraY>(arrayVal->data).push_back(value);
+    }
+    else if (holds_alternative<string>(arrayVal->data)) {
+        get<string>(arrayVal->data) += get<string>(value->data);
+    } else {
+        cout << "\033[31m";
+        cerr << "ไม่สามารถเพิ่มข้อมูลใน " << valueToString(arrayVal)
+             << " ที่บรรทัด " << expr["line"] << " คอลัมน์ " << expr["column"] << "";
+        exit(1);
+    }
+    return arrayVal;  // คืนค่า array/string ที่อัปเดตแล้ว
+}
+else if (type == "Pop") {
+    Value arrayVal = evalExpr(expr["array"]);
+    if (holds_alternative<ValueHolder::ArraY>(arrayVal->data)) {
+        auto &arr = get<ValueHolder::ArraY>(arrayVal->data);
+        if (arr.empty()) {
+            cout << "\033[31m";
+            cerr << "ไม่สามารถดึงข้อมูลจากอาร์เรย์ว่าง ที่บรรทัด "
+                 << expr["line"] << " คอลัมน์ " << expr["column"] << "";
+            exit(1);
+        }
+        Value popped = arr.back();
+        arr.pop_back();
+        return popped;  // คืนค่าที่ถูกดึงออก
+    }
+    else if (holds_alternative<string>(arrayVal->data)) {
+        auto &str = get<string>(arrayVal->data);
+        if (str.empty()) {
+            cout << "\033[31m";
+            cerr << "ไม่สามารถดึงข้อมูลจากข้อความว่าง ที่บรรทัด "
+                 << expr["line"] << " คอลัมน์ " << expr["column"] << "";
+            exit(1);
+        }
+        char lastChar = str.back();
+        str.pop_back();
+        return make_shared<ValueHolder>(string(1, lastChar));
+    } else {
+        cout << "\033[31m";
+        cerr << "ไม่สามารถดึงข้อมูลจาก " << valueToString(arrayVal)
+             << " ที่บรรทัด " << expr["line"] << " คอลัมน์ " << expr["column"] << "";
+        exit(1);
+    }
+}
+else if (type == "Insert") {
+    Value arrayVal = evalExpr(expr["array"]);
+    Value indexVal = evalExpr(expr["index"]);
+    Value value = evalExpr(expr["value"]);
+    int index;
+    if (holds_alternative<int>(indexVal->data)) {
+        index = get<int>(indexVal->data);
+    } else {
+        cout << "\033[31m";
+        cerr << "ดัชนีต้องเป็นจำนวนเต็ม ที่บรรทัด " << expr["line"] << " คอลัมน์ " << expr["column"] << "";
+        exit(1);
+    }
+    if (holds_alternative<ValueHolder::ArraY>(arrayVal->data)) {
+        auto &arr = get<ValueHolder::ArraY>(arrayVal->data);
+        if (index < 0 || index > static_cast<int>(arr.size())) {
+            cout << "\033[31m";
+            cerr << "ดัชนีอยู่นอกขอบเขต ที่บรรทัด " << expr["line"] << " คอลัมน์ " << expr["column"] << "";
+            exit(1);
+        }
+        arr.insert(arr.begin() + index, value);
+    }
+    else if (holds_alternative<string>(arrayVal->data)) {
+        auto &str = get<string>(arrayVal->data);
+        if (index < 0 || index > static_cast<int>(str.size())) {
+            cout << "\033[31m";
+            cerr << "ดัชนีอยู่นอกขอบเขตข้อความ ที่บรรทัด " << expr["line"] << " คอลัมน์ " << expr["column"] << "";
+            exit(1);
+        }
+        str.insert(index, get<string>(value->data));
+    } else {
+        cout << "\033[31m";
+        cerr << "ไม่สามารถแทรกข้อมูลใน " << valueToString(arrayVal)
+             << " ที่บรรทัด " << expr["line"] << " คอลัมน์ " << expr["column"] << "";
+        exit(1);
+    }
+    return arrayVal;  // คืนค่าหลังแทรก
+}
+else if (type == "Erase") {
+    Value arrayVal = evalExpr(expr["array"]);
+    Value indexVal = evalExpr(expr["index"]);
+    int index;
+    if (holds_alternative<int>(indexVal->data)) {
+        index = get<int>(indexVal->data);
+    } else {
+        cout << "\033[31m";
+        cerr << "ดัชนีต้องเป็นจำนวนเต็ม ที่บรรทัด " << expr["line"] << " คอลัมน์ " << expr["column"] << "";
+        exit(1);
+    }
+    if (holds_alternative<ValueHolder::ArraY>(arrayVal->data)) {
+        auto &arr = get<ValueHolder::ArraY>(arrayVal->data);
+        if (index < 0 || index >= static_cast<int>(arr.size())) {
+            cout << "\033[31m";
+            cerr << "ดัชนีอยู่นอกขอบเขต ที่บรรทัด " << expr["line"] << " คอลัมน์ " << expr["column"] << "";
+            exit(1);
+        }
+        Value erased = arr[index];
+        arr.erase(arr.begin() + index);
+        return erased;  // คืนค่าที่ถูกลบ
+    }
+    else if (holds_alternative<string>(arrayVal->data)) {
+        auto &str = get<string>(arrayVal->data);
+        if (index < 0 || index >= static_cast<int>(str.size())) {
+            cout << "\033[31m";
+            cerr << "ดัชนีอยู่นอกขอบเขตข้อความ ที่บรรทัด " << expr["line"] << " คอลัมน์ " << expr["column"] << "";
+            exit(1);
+        }
+        char erased = str[index];
+        str.erase(index, 1);
+        return make_shared<ValueHolder>(string(1, erased));
+    } else {
+        cout << "\033[31m";
+        cerr << "ไม่สามารถลบข้อมูลจาก " << valueToString(arrayVal)
+             << " ที่บรรทัด " << expr["line"] << " คอลัมน์ " << expr["column"] << "";
+        exit(1);
+    }
+}
 	cerr << "ไม่มี expression นี้ ที่ บรรทัด " << expr["line"]
-		 << ", คอลัม์: " << expr["column"] << "";
+		 << ", คอลัมน์: " << expr["column"] << "";
 	exit(1);
 }
 void printValue(const Value &val) {
@@ -1013,7 +1207,8 @@ class ContinueException : public std::exception {};
 
 Value evalStatement(const json &stmt) {
 	if (!stmt.is_object()) {
-		cerr << "❌ stmt ไม่ใช่ json object แต่เป็น: " << stmt << "";
+		cout << "\033[31m";
+		cerr << " stmt ไม่ใช่ json object แต่เป็น: " << stmt << "";
 		exit(1);
 	}
 
@@ -1023,6 +1218,7 @@ Value evalStatement(const json &stmt) {
 	if (type == "print") {
 	  // ตรวจสอบว่า expression เป็น array
 	  if (!stmt.contains("expression") || !stmt["expression"].is_array()) {
+		cout << "\033[31m";
 	    cerr << " print ต้องการ array ของ expressions\n";
 	    exit(1);
 	  }
@@ -1052,7 +1248,7 @@ Value evalStatement(const json &stmt) {
 					return result;
 			}
 		} else {
-			// ✅ ตรวจว่า elif มีจริง และเป็น array ที่ไม่ว่าง
+
 			if (stmt.contains("elif") && stmt["elif"].is_array() && !stmt["elif"].empty()) {
 				for (const auto &elifStmt : stmt["elif"]) {
 					if (get<bool>(evalExpr(elifStmt["condition"])->data)) {
@@ -1061,12 +1257,12 @@ Value evalStatement(const json &stmt) {
 							if (result)
 								return result;
 						}
-						return nullptr; // ✅ ถ้า elif ตรงเงื่อนไข ให้หยุดที่นี่
+						return nullptr; 
 					}
 				}
 			}
 
-			// ✅ else ทำงานเมื่อไม่มี elif ใดๆ ตรงเลย
+	
 			if (stmt.contains("else") && stmt["else"].is_object()) {
 				for (const auto &s : stmt["else"]["body"]["statements"]) {
 					Value result = evalStatement(s);
@@ -1099,6 +1295,7 @@ Value evalStatement(const json &stmt) {
 			Value obj = evalExpr(target["object"]);
 			Value key = evalExpr(target["key"]);
 			if (!holds_alternative<ValueHolder::ObjecT>(obj->data)) {
+				cout << "\033[31m";
 				cerr << "ค่าที่จะกำหนดไม่ใช่ ออบเจต์ ที่บรรทัด " << stmt["line"]
 					 << " คอลัมน์ " << stmt["column"] << "";
 				exit(1);
@@ -1109,18 +1306,21 @@ Value evalStatement(const json &stmt) {
 			Value arr = evalExpr(target["array"]);
 			int index = get<int>(evalExpr(target["index"])->data);
 			if (!holds_alternative<ValueHolder::ArraY>(arr->data)) {
+				cout << "\033[31m";
 				cerr << "ค่าที่จะกำหนดไม่ใช่ ชุดข้อมูล ที่บรรทัด " << stmt["line"]
 					 << " คอลัมน์ " << stmt["column"] << "";
 				exit(1);
 			}
 			auto &vec = get<ValueHolder::ArraY>(arr->data);
 			if (index < 0 || index >= vec.size()) {
+				cout << "\033[31m";
 				cerr << "index ของ array เกินขอบเขต ที่บรรทัด " << stmt["line"]
 					 << " คอลัมน์ " << stmt["column"] << "";
 				exit(1);
 			}
 			vec[index] = val;
 		} else {
+			cout << "\033[31m";
 			cerr << "ไม่สามารถกำหนดค่าสิ่งนี้ได้ ที่บรรทัด " << stmt["line"] << " คอลัมน์ "
 				 << stmt["column"] << "";
 			exit(1);
@@ -1214,6 +1414,7 @@ Value evalStatement(const json &stmt) {
 	        if (holds_alternative<int>(v->data)) return get<int>(v->data);
 	        else if (holds_alternative<double>(v->data)) return get<double>(v->data);
 	        else {
+				cout << "\033[31m";
 	            cerr << "ในลูปต้องเป็นตัวเลข" << endl;
 	            exit(1);
 	        }
@@ -1221,6 +1422,7 @@ Value evalStatement(const json &stmt) {
 
 	    double step = to_double(stepVal);
 	    if (step == 0) {
+			cout << "\033[31m";
 	        cerr << "ขั้นตอนที่3ต้องไม่เป็นศูนย์ ที่บรรทัด " << stmt["line"]
 	             << " คอลัมน์ " << stmt["column"] << endl;
 	        exit(1);
@@ -1307,7 +1509,7 @@ Value evalStatement(const json &stmt) {
 
 		functionDef func;
 		func.name = funcName;
-		func.parameter = parameterName; // ✅ ต้องเก็บไว้ตรงนี้
+		func.parameter = parameterName;
 		func.body = stmt["body"]["statements"];
 		functionTable[funcName] = func;
 		return nullptr;
@@ -1322,6 +1524,7 @@ else if (type == "Push") {
 			Value val = evalExpr(stmt["value"]);
 			get<string>(arrayVal->data) += get<string>(val->data);
 		}else{
+			cout << "\033[31m";
 			cerr << "ไม่สามารถเพิ่มสมาชิกเข้า  ชุดข้อมูลได้"
 				 << " ได้ เนื่องจากไม่ใช่ชุดข้อมูล หรือ ข้อความ "
 				 << "ที่บรรทัด " << stmt["line"] << " คอลัมน์ " << stmt["column"] << "";
@@ -1334,6 +1537,7 @@ else if (type == "Push") {
 		if(holds_alternative<ValueHolder::ArraY>(arrayVal->data)){
 		auto &arr = get<ValueHolder::ArraY>(arrayVal->data);
 		if (arr.empty()) {
+			cout << "\033[31m";
 			cerr << "ไม่สามารถ ดึงข้อมูลออก จาก ชุดข้อมูล ที่ว่าง "
 				 << " ได้ที่บรรทัด " << stmt["line"] << " คอลัมน์ " << stmt["column"] << "";
 			exit(1);
@@ -1344,6 +1548,7 @@ else if (type == "Push") {
 		else if(holds_alternative<string>(arrayVal->data)){
 			auto &arr = get<string>(arrayVal->data);
 			if (arr.empty()) {
+				cout << "\033[31m";
 				cerr << "ไม่สามารถ ดึงข้อมูลออก จาก ข้อความ ที่ว่าง "
 					 << " ได้ที่บรรทัด " << stmt["line"] << " คอลัมน์ " << stmt["column"] << "";
 				exit(1);
@@ -1352,6 +1557,7 @@ else if (type == "Push") {
 			arr.pop_back();
 			}
 		else{
+			cout << "\033[31m";
 			cerr << "ไม่สามารถลบสมาชิกนี้ได้ '"
 				 << " ได้ เนื่องจากไม่ใช่ชุดข้อมูล หรือ ข้อความ "
 				 << "ที่บรรทัด " << stmt["line"] << " คอลัมน์ " << stmt["column"] << "";
@@ -1365,6 +1571,7 @@ else if (type == "Push") {
 		Value valueToInsert = evalExpr(stmt["value"]);
 
 		if (!holds_alternative<int>(indexVal->data)) {
+			cout << "\033[31m";
 			cerr << "ดัชนี ต้องเป็นจำนวนเต็ม "
 				 << "ที่บรรทัด " << stmt["line"] << " คอลัมน์ " << stmt["column"] << "";
 			exit(1);
@@ -1375,6 +1582,7 @@ else if (type == "Push") {
 		if(holds_alternative<ValueHolder::ArraY>(arrayVal->data)){
 			auto &array = get<ValueHolder::ArraY>(arrayVal->data);
 			if (index < 0 || index > static_cast<int>(array.size())) {
+				cout << "\033[31m";
 				cerr << "ดัชนี อยู่นอกขอบเขตของ ชุดข้อมูล ที่บรรทัด " << stmt["line"] << " คอลัมน์ " << stmt["column"] << "";
 				exit(1);
 			}
@@ -1384,6 +1592,7 @@ else if (type == "Push") {
 			auto &array = get<string>(arrayVal->data);
 
 			if (index < 0 || index > static_cast<int>(array.size())) {
+				cout << "\033[31m";
 				cerr << "ดัชนีอยู่นอกขอบเขตของข้อความ ที่บรรทัด "
 				     << stmt["line"] << " คอลัมน์ " << stmt["column"] << "";
 				exit(1);
@@ -1395,6 +1604,7 @@ else if (type == "Push") {
 			const string &strToInsert = get<string>(valueToInsert->data);
 			array.insert(index, strToInsert);
 		}else{
+			cout << "\033[31m";
 			cerr << "ไม่สามารถแทรกได้ เนื่องจากค่าไม่ใช่ชุดข้อมูล หรือ ข้อความ "
 				 << "ที่บรรทัด " << stmt["line"] << " คอลัมน์ " << stmt["column"] << "";
 			exit(1);
@@ -1413,6 +1623,7 @@ else if (type == "Push") {
 			if (holds_alternative<double>(indexVal->data)) {
 				double b = get<double>(indexVal->data);
 				if (b != static_cast<int>(b)) {
+					cout << "\033[31m";
 					cerr << "ดัชนีที่ต้องการลบจาก ชุดข้อมูล ต้องเป็นจำนวนเต็ม"
 						 << "ที่บรรทัด: " << stmt["line"] << " คอลัมน์: " << stmt["column"]
 						 << "";
@@ -1420,6 +1631,7 @@ else if (type == "Push") {
 				}
 				index = static_cast<int>(b);
 			} else {
+				cout << "\033[31m";
 				cerr << "ดัชนีที่ต้องการลบจาก ชุดข้อมูล ต้องเป็นจำนวนเต็ม"
 					 << "ที่บรรทัด: " << stmt["line"] << " คอลัมน์: " << stmt["column"]
 					 << "";
@@ -1435,6 +1647,7 @@ else if (type == "Push") {
 			auto &arr = get<ValueHolder::ArraY>(arrayVal->data);
 
 			if (index < 0 || index >= static_cast<int>(arr.size())) {
+				cout << "\033[31m";
 				cerr << "ไม่สามารถลบ ดัชนี ที่อยู่นอกขอบเขต ชุดข้อมูล ได้ "
 					 << "ดัชนี: " << index << ", ขนาด ชุดข้อมูล: " << arr.size()
 					 << " ที่บรรทัด: " << stmt["line"] << " คอลัมน์: " << stmt["column"]
@@ -1447,6 +1660,7 @@ else if (type == "Push") {
 			auto &arr = get<string>(arrayVal->data);
 
 			if (index < 0 || index >= static_cast<int>(arr.size())) {
+				cout << "\033[31m";
 				cerr << "ไม่สามารถลบ ดัชนี ที่อยู่นอกขอบเขต ชุดข้อมูล ได้ "
 					 << "ดัชนี: " << index << ", ขนาด ชุดข้อมูล: " << arr.size()
 					 << " ที่บรรทัด: " << stmt["line"] << " คอลัมน์: " << stmt["column"]
@@ -1456,6 +1670,7 @@ else if (type == "Push") {
 
 			arr.erase(index,1);
 		}else{
+			cout << "\033[31m";
 			cerr << "ไม่สามารถลบสมาชิกได้ เนื่องจากไม่ใช่ชุดข้อมูล หรือ ข้อความ"
 				 << " ที่บรรทัด: " << stmt["line"] << " คอลัมน์: " << stmt["column"]
 				 << "";
@@ -1514,6 +1729,7 @@ else if (type == "Push") {
 	    filePath = fs::absolute(filePath);
 
 	    if (!fs::exists(filePath)) {
+			cout << "\033[31m";
 	        cerr << "ไม่พบไฟล์ '" << filePath
 	             << "' ที่บรรทัด " << stmt["line"]
 	             << " คอลัมน์ " << stmt["column"] << "";
@@ -1522,6 +1738,7 @@ else if (type == "Push") {
 
 	    ifstream inFile(filePath);
 	    if (!inFile.is_open()) {
+			cout << "\033[31m";
 	        cerr << "ไม่สามารถเปิดไฟล์ '" << filePath
 	             << "' ได้ ที่บรรทัด " << stmt["line"]
 	             << " คอลัมน์ " << stmt["column"] << "";
@@ -1534,6 +1751,7 @@ else if (type == "Push") {
 
 	    string content = buffer.str();
 	    if (content.empty()) {
+			cout << "\033[31m";
 	        cerr << "ไฟล์ '" << filePath
 	             << "' ว่างเปล่า! ที่บรรทัด "
 	             << stmt["line"] << " คอลัมน์ "
@@ -1545,6 +1763,7 @@ else if (type == "Push") {
 	    try {
 	        importedAST = json::parse(content);
 	    } catch (const json::parse_error& e) {
+			cout << "\033[31m";
 	        cerr << "ไฟล์ที่นำเข้าต้องมีสกุลเป็น .json ที่บรรทัด " << stmt["line"] << " คอลัมน์ "
 		             << stmt["column"] << "";
 	        exit(1);
@@ -1569,7 +1788,7 @@ else if(type == "Comment"){
 	}else if (type == "FunctionCall") {
         return evalExpr(stmt);  // คืนค่าที่ evalExpr คืนกลับมาเลย
     }
-
+cout << "\033[31m";
 	cerr << "ไม่รู้จักคำสั่งประเภทนี้ "<<" ที่บรรทัด "<<stmt["line"]<<" คอลัมน์ "<<stmt["column"]<< "";
 	exit(1);
 	// bracket below refer to evalStatement
@@ -3269,6 +3488,8 @@ public:
 
 
 				return make_shared<PrintNode>(expressions, t);
+			}else{
+				syntaxError(peek(), "ที่ แสดงผล ขาด (");
 			}
 		}
 		throw runtime_error("แสดงผล ไม่ถูกต้อง");
@@ -3633,11 +3854,11 @@ public:
 			syntaxError(peek(), "ขาด ชื่อไฟล์");
 		}
 		string filename = advance().value;
-		if (!match("AS")) {
+		/*if (!match("AS")) {
 			syntaxError(peek(), "ขาด แทน");
-		}
-		string name = advance().value;
-
+		}*/
+		//string name = advance().value;
+		string name = "notuse";
 		return make_shared<ImportNode>(filename, name, t);
 	}
 
@@ -3760,30 +3981,48 @@ void update_counters(const string &str, size_t &line, size_t &col) {
 
 
 // command base
+// ===================== ฟังก์ชันช่วยอ่าน UTF-8 =====================
+char32_t readUtf8Char(const std::string &s, size_t &i) {
+    if (i >= s.size()) return 0;
+    unsigned char c = s[i];
+    char32_t codepoint;
+    int len;
+    if (c <= 0x7F) { len = 1; codepoint = c; }
+    else if ((c & 0xE0) == 0xC0) { len = 2; codepoint = c & 0x1F; }
+    else if ((c & 0xF0) == 0xE0) { len = 3; codepoint = c & 0x0F; }
+    else if ((c & 0xF8) == 0xF0) { len = 4; codepoint = c & 0x07; }
+    else { len = 1; codepoint = c; } // fallback
+
+    for (int j = 1; j < len; ++j) {
+        if (i + j >= s.size()) break;
+        codepoint = (codepoint << 6) | (s[i + j] & 0x3F);
+    }
+    i += len;
+    return codepoint;
+}
+
+bool isThaiLetter(char32_t cp) {
+    return (cp >= 0x0E01 && cp <= 0x0E5B); // ก-๛ รวมสระ วรรณยุกต์
+}
+bool isASCIILetter(char32_t cp) {
+    return (cp >= 'a' && cp <= 'z') || (cp >= 'A' && cp <= 'Z');
+}
+bool isDigit(char32_t cp) {
+    return (cp >= '0' && cp <= '9');
+}
+bool isIdentifierStart(char32_t cp) {
+    return isASCIILetter(cp) || isThaiLetter(cp) || cp == '_' || cp == '@' || cp == '$';
+}
+bool isIdentifierPart(char32_t cp) {
+    return isIdentifierStart(cp) || isDigit(cp);
+}
+
+// ===================== Token Patterns (เฉพาะสัญลักษณ์และค่าคงที่) =====================
 vector<pair<string, string>> TokenPatterns = {
-    {"PROGRAM", "โปรแกรม"},
-    {"EXITPROCESS", "จบการทำงาน"},
-	{"OPEN_BRACKETS", "\\{"},
-	{"CLOSE_BRACKETS", "\\}"},
-    {"DECLARE", "ให้"},
-    {"INTEGER", "จำนวนเต็ม"},
-    {"FLOAT", "ทศนิยม"},
-    {"STRING", "ข้อความ"},
-    {"ARRAY", "ชุดข้อมูล"},
-    {"OBJECT", "อ็อบเจกต์"},
-    {"CONST", "ค่าคงที่"},
-    {"BOOLLEAN", "ค่าความจริง"},
-    {"NULL", "ว่าง"},
-    {"CONVERTDATATYPE", "เปลี่ยนชนิดข้อมูล"},
-    {"LENGTH", "ขนาด"},
-    {"POP", "ดึงออก"},
-    {"PUSH", "เพิ่ม"},
-    {"INSERT", "แทรก"},
-    {"ERASE", "ลบ"},
-    {"BE", "เป็น"},
+    // สัญลักษณ์และเครื่องหมาย
+    {"OPEN_BRACKETS", "\\{"},
+    {"CLOSE_BRACKETS", "\\}"},
     {"ARROW", "->"},
-    {"EQUALSSIGN", "คือ"},
-    {"AS", "แทน"},
     {"INCREMENT", "\\+\\+"},
     {"ADDITION", "\\+"},
     {"DECREMENT", "--"},
@@ -3791,9 +4030,6 @@ vector<pair<string, string>> TokenPatterns = {
     {"STRING_VALUE", R"("(?:[^"\\]|\\.)*")"},
     {"FLOAT_VALUE", "-?\\d+\\.\\d+"},
     {"INTEGER_VALUE", "-?\\d+"},
-    {"ROOT", "ราก"},
-    {"TRUE_VALUE", "จริง"},
-    {"FALSE_VALUE", "เท็จ"},
     {"BRACKET_OPENING", "\\["},
     {"BRACKET_CLOSEING", "\\]"},
     {"EXPONENTIATION", "\\*\\*"},
@@ -3807,45 +4043,73 @@ vector<pair<string, string>> TokenPatterns = {
     {"NOTEQUAL", "!="},
     {"GREATEROREQUAL", ">="},
     {"LESSEROREQUAL", "<="},
-    {"LN", "ln"},
     {"GREATER", ">"},
     {"LESSER", "<"},
     {"BITWISE_NOT", "!"},
     {"BITWISE_AND", "&"},
     {"BITWISE_OR", "\\|"},
+    {"DOT", "\\."},
+    {"COMMA", ","},
+    {"OPEN_PAREN", "\\("},
+    {"CLOSE_PAREN", "\\)"},
+    {"COLON", ":"},
+    {"NEWLINE", "\n"},
+    // INDENT/DEDENT เป็น virtual token ไม่มี pattern
+};
+
+// ===================== รายการ keyword (เรียงจากยาวไปสั้น) =====================
+static const vector<pair<string, string>> keywordList = {
+    {"CONVERTDATATYPE", "เปลี่ยนชนิดข้อมูล"},
+    {"EXITPROCESS", "จบการทำงาน"},
+    {"FUNCTION", "ฟังก์ชั่น"},          // (ถ้ามี)
+    {"PROGRAM", "โปรแกรม"},
+    {"BOOLLEAN", "ค่าความจริง"},
+    {"INTEGER", "จำนวนเต็ม"},
+    {"FLOAT", "ทศนิยม"},
+    {"STRING", "ข้อความ"},
+    {"ARRAY", "ชุดข้อมูล"},
+    {"OBJECT", "อ็อบเจกต์"},
+    {"CONST", "ค่าคงที่"},
+    {"NULL", "ว่าง"},
+    {"LENGTH", "ขนาด"},
+    {"POP", "ดึงออก"},
+    {"PUSH", "เพิ่ม"},
+    {"INSERT", "แทรก"},
+    {"ERASE", "ลบ"},
+    {"EQUALSSIGN", "คือ"},
+    {"AS", "แทน"},
+    {"ROOT", "ราก"},
+    {"TRUE_VALUE", "จริง"},
+    {"FALSE_VALUE", "เท็จ"},
     {"NOT", "ไม่"},
     {"OR", "หรือ"},
     {"AND", "และ"},
     {"XOR", "ซอร์"},
-    {"DOT", "\\."},
-    {"COMMA", ","},
     {"INPUT", "รับ"},
     {"PRINT", "แสดง"},
     {"IF", "ถ้า"},
-    {"OPEN_PAREN", "\\("},
-    {"CLOSE_PAREN", "\\)"},
     {"WHILE", "ขณะ"},
     {"FOR", "สำหรับ"},
-	{"RANGE","ในช่วง"},
+    {"RANGE", "ในช่วง"},
     {"DO", "ทำ"},
     {"IMPORT", "นำเข้า"},
     {"EXPORT", "ส่งออก"},
-    {"BREAK", "ออก"},
+    {"BREAK", "หยุด"},
     {"CONTINUE", "ถัดไป"},
     {"ELIF", "มิฉะนั้นถ้า"},
     {"ELSE", "มิฉะนั้น"},
     {"VOID", "เปล่า"},
     {"RETURN", "คืนค่า"},
-    {"COLON", ":"},
-    {"IDENTIFIER", "[a-zA-Zก-๙_][a-zA-Zก-๙0-9_@$]*"},
-    {"NEWLINE", "\n"},
-    {"INDENT", "INDENT"},  // Virtual token
-    {"DEDENT", "DEDENT"}   // Virtual token
+    {"LN", "ln"},
+    {"BE", "เป็น"},
+    {"DECLARE", "ให้"},    // (ถ้าใช้)
+    // เพิ่ม keyword ภาษาไทย/อังกฤษอื่น ๆ ที่เคยอยู่ใน TokenPatterns เดิม
 };
 
+// ===================== Lexer ใหม่ =====================
 vector<Token> lexer(const string &code) {
     vector<Token> tokens;
-    vector<int> indent_stack = {0}; // Track indentation levels
+    vector<int> indent_stack = {0};
     int current_line = 1;
     int current_col = 1;
     size_t i = 0;
@@ -3853,28 +4117,22 @@ vector<Token> lexer(const string &code) {
     int current_indent = 0;
 
     while (i < code.length()) {
-        // Skip whitespace within a line
+        // ---------- จัดการย่อหน้า (indent) ----------
         if (at_line_start) {
-            // Count leading spaces/tabs for indentation
             current_indent = 0;
-            while (i < code.length() && (code[i] == ' ' || code[i] == '\t')) {
-                if (code[i] == '\t') {
-                    current_indent += 4; // Tab = 4 spaces (adjustable)
-                } else {
-                    current_indent++;
-                }
+            while (i < code.length() && (code[i] == ' ' || code[i] == '\t' || code[i] == '\r')) {
+                if (code[i] == '\t') current_indent += 4;
+                else if (code[i] == ' ') current_indent++;
                 i++;
             }
 
-            // Skip empty lines
-            if (i < code.length() && code[i] == '\n') {
-                i++;
+            if (i >= code.length() || code[i] == '\n') {
+                if (i < code.length() && code[i] == '\n') i++;
                 current_line++;
                 current_col = 1;
                 continue;
             }
 
-            // Handle indentation changes
             if (current_indent > indent_stack.back()) {
                 indent_stack.push_back(current_indent);
                 tokens.push_back({"INDENT", "", current_line, current_col});
@@ -3884,18 +4142,15 @@ vector<Token> lexer(const string &code) {
                     tokens.push_back({"DEDENT", "", current_line, current_col});
                 }
                 if (current_indent != indent_stack.back()) {
-                    lexerError(current_line, current_col,
-                              "Indentation mismatch", "");
+                    lexerError(current_line, current_col, "Indentation mismatch", "");
                 }
             }
-
             at_line_start = false;
             current_col = 1 + current_indent;
         }
 
-        // Handle newline
+        // ---------- ขึ้นบรรทัดใหม่ ----------
         if (code[i] == '\n') {
-            // Only add NEWLINE if the line wasn't empty
             if (!tokens.empty() && tokens.back().type != "NEWLINE" &&
                 tokens.back().type != "INDENT" && tokens.back().type != "DEDENT") {
                 tokens.push_back({"NEWLINE", "\n", current_line, current_col});
@@ -3907,52 +4162,40 @@ vector<Token> lexer(const string &code) {
             continue;
         }
 
-        // Skip other whitespace (not at line start)
+        // ---------- ข้าม whitespace ธรรมดา ----------
         if (isspace(code[i])) {
             i++;
             current_col++;
             continue;
         }
 
-        // Check for comments
+        // ---------- ข้ามคอมเมนต์ ----------
         if (code[i] == '#') {
-        	i++;
-            while (i < code.length() && code[i] != '\n') {
-                i++;
-            }
+            i++;
+            while (i < code.length() && code[i] != '\n') i++;
             continue;
-        }else if (code[i] == '/' && i + 1 < code.length() && code[i + 1] == '*') {
+        }
+        if (code[i] == '/' && i + 1 < code.length() && code[i + 1] == '*') {
             i += 2;
-
-            while (i + 1 < code.length() &&
-                   !(code[i] == '*' && code[i + 1] == '/')) {
-                i++;
-            }
-
+            while (i + 1 < code.length() && !(code[i] == '*' && code[i + 1] == '/')) i++;
             i += 2;
             continue;
         }
 
-
-        // Try to match tokens
+        // ---------- ลอง match ด้วย TokenPatterns (สัญลักษณ์, ตัวเลข, สตริง) ----------
         bool matched = false;
         string remaining = code.substr(i);
 
         for (const auto &[type, pattern] : TokenPatterns) {
-            // Skip NEWLINE, INDENT, DEDENT as they're virtual
-            if (type == "NEWLINE" || type == "INDENT" || type == "DEDENT")
-                continue;
+            if (type == "NEWLINE" || type == "INDENT" || type == "DEDENT") continue;
 
             regex reg("^" + pattern);
             smatch match;
-
             if (regex_search(remaining, match, reg)) {
                 string token_value = match[0].str();
 
-                // Check if it's a string value and remove quotes
                 if (type == "STRING_VALUE") {
                     token_value = token_value.substr(1, token_value.length() - 2);
-                    // Unescape string
                     string unescaped;
                     for (size_t j = 0; j < token_value.length(); j++) {
                         if (token_value[j] == '\\' && j + 1 < token_value.length()) {
@@ -3973,7 +4216,6 @@ vector<Token> lexer(const string &code) {
                 }
 
                 tokens.push_back({type, token_value, current_line, current_col});
-
                 i += match[0].length();
                 current_col += count_utf8_chars(token_value);
                 matched = true;
@@ -3981,32 +4223,60 @@ vector<Token> lexer(const string &code) {
             }
         }
 
+        // ---------- ถ้ายังไม่ match -> ลองอ่าน identifier / keyword ----------
         if (!matched) {
-            // Find the problematic token
-            size_t end = i;
-            while (end < code.length() && !isspace(code[end]) &&
-                   code[end] != ';' && code[end] != ',' &&
-                   code[end] != '(' && code[end] != ')' &&
-                   code[end] != '{' && code[end] != '}' &&
-                   code[end] != '[' && code[end] != ']') {
-                end++;
+            size_t start = i;
+            size_t check_pos = start;
+            char32_t first_cp = readUtf8Char(code, check_pos);
+            if (isIdentifierStart(first_cp)) {
+                // อ่านต่อจนกว่าจะไม่ใช่ identifier part
+                size_t end = check_pos; // check_pos ชี้ไปหลัง first_cp แล้ว
+                while (end < code.length()) {
+                    size_t next = end;
+                    char32_t cp = readUtf8Char(code, next);
+                    if (!isIdentifierPart(cp)) break;
+                    end = next;
+                }
+                string token_value = code.substr(i, end - i);
+                string token_type = "IDENTIFIER";
+
+                // ตรวจสอบ keyword (ไล่จากยาวไปสั้น)
+                for (const auto &[type, word] : keywordList) {
+                    if (token_value == word) {
+                        token_type = type;
+                        break;
+                    }
+                }
+
+                tokens.push_back({token_type, token_value, current_line, current_col});
+                current_col += count_utf8_chars(token_value);
+                i = end;
+                continue;
+            } else {
+                // อักขระไม่รู้จัก -> error
+                size_t end = i;
+                while (end < code.length() && !isspace(code[end]) &&
+                       code[end] != ';' && code[end] != ',' &&
+                       code[end] != '(' && code[end] != ')' &&
+                       code[end] != '{' && code[end] != '}' &&
+                       code[end] != '[' && code[end] != ']') {
+                    end++;
+                }
+                string context = code.substr(i, min((size_t)20, end - i));
+                lexerError(current_line, current_col, "ไม่พบคำสั่งนี้ในภาษา", context);
+                i = end;
             }
-            string context = code.substr(i, min((size_t)20, end - i));
-            lexerError(current_line, current_col, "ไม่พบคำสั่งนี้ในภาษา", context);
-            i = end;
         }
     }
 
-    // Add dedents at end of file
+    // ---------- สร้าง DEDENT เมื่อจบไฟล์ ----------
     while (indent_stack.size() > 1) {
         indent_stack.pop_back();
         tokens.push_back({"DEDENT", "", current_line, current_col});
     }
-
     tokens.push_back({"EOF", "", current_line, current_col});
     return tokens;
 }
-
 Value evalFunctionFromParts(const vector<string> &params, const json &body,
                             const vector<Value> &args) {
     // Create new scope
@@ -4036,6 +4306,7 @@ Value evalFunctionFromParts(const vector<string> &params, const json &body,
 void evalProgram(const json &programAST) {
 	env.push_back({});
 	if (programAST["type"] != "Program") {
+		cout << "\033[31m";
 		cerr << "AST ที่ส่งเข้า evalProgram ต้องเป็น Program node\n";
 		exit(1);
 	}
@@ -4050,6 +4321,7 @@ void evalProgram(const json &programAST) {
 Value evalFunctionFromNode(const json &funcNode, const vector<Value> &args) {
 	// 1. ตรวจสอบว่าประเภทคือ functionDeclaretion
 	if (funcNode["type"] != "functionDeclaretion") {
+		cout << "\033[31m";
 		cerr << "ไม่ใช่ฟังก์ชันที่สามารถเรียกได้" << "";
 		std::exit(1);
 	}
@@ -4060,6 +4332,7 @@ Value evalFunctionFromNode(const json &funcNode, const vector<Value> &args) {
 	// 3. ผูก arguments กับ parameter
 	const auto &params = funcNode["parameter"];
 	if (params.size() != args.size()) {
+		cout << "\033[31m";
 		cerr << "จำนวน arguments ไม่ตรงกับ parameter" << "";
 		std::exit(1);
 	}
@@ -4109,14 +4382,105 @@ std::string sanitize_for_json(const std::string& input) {
     return output;
 }
 
+
+
+void DONUT(){
+    const int screenWidth = 80;
+    const int screenHeight = 24;
+
+    float A = 0.0f; // มุมหมุนรอบแกน X
+    float B = 0.0f; // มุมหมุนรอบแกน Z
+
+    const char* luminanceChars = ".,-~:;=!*#$@"; // จากมืดไปสว่าง
+
+    char output[screenHeight][screenWidth];
+    float zBuffer[screenHeight][screenWidth];
+
+    const float donutThickness = 1.0f;   // R1: รัศมีท่อของโดนัท
+    const float donutRadius   = 2.0f;    // R2: รัศมีวงของโดนัท
+    const float distanceFromCam = 5.0f;  // K2: ระยะห่างจากกล้อง
+    const float K1 = screenWidth * distanceFromCam * 3.0f / (8.0f * (donutThickness + donutRadius));
+
+    printf("\x1b[2J"); // เคลียร์หน้าจอ
+
+    while (true) {
+        memset(output, ' ', sizeof(output));
+        memset(zBuffer, 0, sizeof(zBuffer));
+
+        // theta: มุมรอบหลอดเล็ก (วงกลมตัดขวางของท่อ)
+        for (float theta = 0; theta < 2 * M_PI; theta += 0.07f) {
+            float cosTheta = cosf(theta), sinTheta = sinf(theta);
+
+            // phi: มุมรอบวงใหญ่ของโดนัท
+            for (float phi = 0; phi < 2 * M_PI; phi += 0.02f) {
+                float cosPhi = cosf(phi), sinPhi = sinf(phi);
+
+                float cosA = cosf(A), sinA = sinf(A);
+                float cosB = cosf(B), sinB = sinf(B);
+
+                // จุดบนวงกลมตัดขวาง ก่อนวางลงบนวงใหญ่
+                float circleX = donutThickness * cosTheta + donutRadius;
+                float circleY = donutThickness * sinTheta;
+
+                // หมุนรอบแกน X (มุม A) และแกน Z (มุม B) แล้ว map ไปตามวงกลมใหญ่ (phi)
+                float x = circleX * (cosB * cosPhi + sinA * sinB * sinPhi) - circleY * cosA * sinB;
+                float y = circleX * (sinB * cosPhi - sinA * cosB * sinPhi) + circleY * cosA * cosB;
+                float z = distanceFromCam + cosA * circleX * sinPhi + circleY * sinA;
+                float ooz = 1.0f / z; // one-over-z สำหรับ perspective projection
+
+                int xp = static_cast<int>(screenWidth / 2 + K1 * ooz * x);
+                int yp = static_cast<int>(screenHeight / 2 - K1 * ooz * y * 0.5f); // *0.5 ชดเชยความสูงของฟอนต์ terminal
+
+                // คำนวณค่าความสว่างจาก normal vector ของพื้นผิว dot กับแสง
+                float L = cosPhi * cosTheta * sinB - cosA * cosTheta * sinPhi
+                          - sinA * sinTheta + cosB * (cosA * sinTheta - cosTheta * sinA * sinPhi);
+
+                if (L > 0 && xp >= 0 && xp < screenWidth && yp >= 0 && yp < screenHeight) {
+                    if (ooz > zBuffer[yp][xp]) {
+                        zBuffer[yp][xp] = ooz;
+                        int luminanceIndex = static_cast<int>(L * 8);
+                        if (luminanceIndex < 0) luminanceIndex = 0;
+                        if (luminanceIndex > 11) luminanceIndex = 11;
+                        output[yp][xp] = luminanceChars[luminanceIndex];
+                    }
+                }
+            }
+        }
+
+        printf("\x1b[H"); // ย้าย cursor กลับมุมบนซ้าย (ไม่กระพริบจอ)
+        for (int j = 0; j < screenHeight; j++) {
+            for (int i = 0; i < screenWidth; i++) {
+                putchar(output[j][i]);
+            }
+            putchar('\n');
+        }
+
+        A += 0.07f; // ความเร็วการหมุนรอบแกน X
+        B += 0.03f; // ความเร็วการหมุนรอบแกน Z
+
+        usleep(30000); // ~33 fps
+    }
+
+}
+
+
+
+
 int main(int argc, char *argv[]) {
 
 	ios::sync_with_stdio(false);
 	cout.tie(nullptr);
     SetConsoleOutputCP(65001);
-
+	SetConsoleCP(65001); 
     if (argc < 2) {
-        cerr << "Usage: mmt <filename>.thl [target.json]\nor mmt <filename>.thl" << "";
+        cerr << "ให้ใช้คำสั่ง mmt <filename>.thl หรือ mmt <filename>.json สำหรับการรันโคดทั่วไป\n ตัวอย่างการใช้งาน mmt test.thl\n"<<
+		"ให้ใช้คำสั่ง mmt <filename>.thl <filename>.json สำหรับการสร้างmodule file\n"<<
+		"ตัวอย่างโดค: \n"<<
+		"โปรแกรม GCD(a,b):\n" <<
+    	"	ถ้า a = 0:\n"<<
+       	"		คืนค่า b\n"<<
+    	"	คืนค่า GCD(b%a,a)\n"<<
+		"แสดง(GCD(4,5))";
         exit(1);
     }
 
@@ -4127,7 +4491,9 @@ int main(int argc, char *argv[]) {
     if (filename == "-v" || filename == "-version") {
         cout << "mmt version 1.0 Runes of Thai" << "";
         return 0;
-    }
+    }else if(filename == "donut"){
+		DONUT();
+	}
     if (argc >= 3) {
         fileTarget = argv[2];
     }
@@ -4135,14 +4501,16 @@ int main(int argc, char *argv[]) {
     fs::path filepath = fs::current_path() / filename;
 
     // ตรวจสอบนามสกุลไฟล์ .thl
-    if (filepath.extension() != ".thl") {
-        cerr << "Invalid file extension. Must be .thl" << "";
+    if (filepath.extension() != ".thl" && filepath.extension() != ".json") {
+		cout << "\033[31m";
+        cerr << "นามสกุลไฟล์ผิดพลาด : นามสกุลไฟล์ต้องเป็น .thl หรือ .json เท่านั้น" << "";
         exit(1);
     }
 
     // ตรวจสอบไฟล์ .thl มีจริงไหม
     if (!fs::exists(filepath)) {
-        cerr << "File not found: " << filename << "";
+		cout << "\033[31m";
+        cerr << "ไม่พบไฟล์: " << filename << "";
         exit(1);
     }
 
@@ -4151,6 +4519,7 @@ int main(int argc, char *argv[]) {
     if (!fileTarget.empty()) {
         fs::path filepathTarget = fs::current_path() / fileTarget;
         if (filepathTarget.extension() != ".json") {
+			cout << "\033[31m";
             cerr << "ไฟล์เป้าหมายต้องเป็น .json เท่านั้น" << "";
             exit(1);
         }
@@ -4159,7 +4528,8 @@ int main(int argc, char *argv[]) {
     // อ่านไฟล์ .thl
     ifstream file(filename, ios::binary);
     if (!file.is_open()) {
-        cerr << "Failed to open: " << filename << "";
+		cout << "\033[31m";
+        cerr << "ผิดพลาดในการเปิด: " << filename << "";
         exit(1);
     }
 
@@ -4174,21 +4544,23 @@ int main(int argc, char *argv[]) {
     for (const auto &l : lines) {
         content += l + "\n";
     }
-
     // Remove UTF-8 BOM if present
-    if (content.size() >= 3 && static_cast<unsigned char>(content[0]) == 0xEF &&
+
+ 	if(filepath.extension() ==".thl"){
+		if (content.size() >= 3 && static_cast<unsigned char>(content[0]) == 0xEF &&
         static_cast<unsigned char>(content[1]) == 0xBB &&
         static_cast<unsigned char>(content[2]) == 0xBF) {
         content = content.substr(3);
     }
-
     try {
         string astText = ast_json(content);
 		//cout << astText<<"\n";
         if (fileTarget.empty()) {
+
 			astText = sanitize_for_json(astText);
             json jsonWork = json::parse(astText);
             evalProgram(jsonWork);
+
 
         } else {
             // กรณี argc == 3 และไฟล์เป้าหมาย .json
@@ -4206,14 +4578,50 @@ int main(int argc, char *argv[]) {
         }
 
     } catch (const exception &e) {
-        cerr << "\nCompilation failed: " << e.what() << "";
+        cerr << "\nCompilation THL failed: " << e.what() << "";
         return 1;
     }
+
+}else{
+	try
+	{
+		if (fileTarget.empty()) {
+
+			//content = sanitize_for_json(content);
+            json jsonWork = json::parse(content);
+            evalProgram(jsonWork);
+
+
+        } else {
+            // กรณี argc == 3 และไฟล์เป้าหมาย .json
+            fs::path filepathTarget = fs::current_path() / fileTarget;
+            fs::create_directories(filepathTarget.parent_path());
+
+            ofstream ast_file(filepathTarget);
+            if (ast_file.is_open()) {
+                ast_file << content;
+                ast_file.close();
+            } else {
+				cout << "\033[31m";
+                cerr << "Failed to write JSON AST to: " << filepathTarget << "";
+                exit(1);
+            }
+        }
+	}
+	catch(const std::exception& e)
+	{
+		cout << "\033[31m";
+		cerr << "\nCompilation JSON failed: " << e.what() << "";
+		return 1;
+	}
+	
+}
 
     return 0;
 }
 
 /*
-this interpreter made by Mr.Phawat Matitham.
-created at 2 Apr 2025.
+this interpreter was created by Mr.Phawat Matitham.
+created on 2 Apr 2025.
+helped by Claude , Chat-gpt , Gemini ,DeepseekAI
 */
