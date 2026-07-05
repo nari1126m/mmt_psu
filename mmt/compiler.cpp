@@ -2706,7 +2706,7 @@ public:
 	    void expect_indent() {
 	        skip_newlines();
 	        if (!match("INDENT")) {
-	            syntaxError(peek(), "ต้องการการย่อหน้า");
+	            syntaxError(peek(), "ต้องการการเยื้อง");
 	        }
 	    }
 
@@ -2714,7 +2714,7 @@ public:
 	        // Skip newlines before dedent
 	        skip_newlines();
 	        if (!match("DEDENT")) {
-	            syntaxError(peek(), "ต้องการลดระดับการย่อหน้า");
+	            syntaxError(peek(), "ต้องการลดระดับการเยื้อง");
 	        }
 	    }
 	    ASTNodePtr parse() {
@@ -4117,7 +4117,7 @@ vector<Token> lexer(const string &code) {
     int current_indent = 0;
 
     while (i < code.length()) {
-        // ---------- จัดการย่อหน้า (indent) ----------
+        // ---------- จัดการเยื้อง (indent) ----------
         if (at_line_start) {
             current_indent = 0;
             while (i < code.length() && (code[i] == ' ' || code[i] == '\t' || code[i] == '\r')) {
