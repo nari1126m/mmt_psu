@@ -86,9 +86,10 @@ string valueToString(const Value& val); // ประกาศก่อน เพ
 
 using ASTNodePtr = shared_ptr<ASTNode>; // to manage memory
 struct functionDef {
-	string name;
-	vector<string> parameter;
-	json body;
+    string name;
+    vector<string> parameter;
+    vector<json> defaultValues;   // <-- new: optional default value ASTs
+    json body;
 };
 
 Value evalFunctionFromParts(const vector<string> &params, const json &body,
@@ -996,21 +997,36 @@ Value evalExpr(const json &expr) {
 	    }
 	    // เรียกฟังก์ชันโลคัล
 	    else {
-	        if (functionTable.find(funcname) == functionTable.end()) {
-				cout << "\033[31m";
-	            cerr << "โปรแกรม '" << funcname << "' ยังไม่ถูกประกาศ ที่บรรทัด "
-	                 << expr["line"] << " คอลัมน์ " << expr["column"] << "";
-	            exit(1);
-	        }
-	        const functionDef& def = functionTable[funcname];
-	        if (args.size() != def.parameter.size()) {
-				cout << "\033[31m";
-	            cerr << "จำนวนอากิวเมนต์ไม่ตรงกัน สำหรับ '" << funcname << "' ต้องการ "
-	                 << def.parameter.size() << ", ได้รับ " << args.size()
-	                 << " ที่บรรทัด " << expr["line"] << " คอลัมน์ " << expr["column"] << "";
-	            exit(1);
-	        }
-	        return evalFunctionFromParts(def.parameter, def.body, args);
+	           if (functionTable.find(funcname) == functionTable.end()) {
+        cout << "\033[31m";
+        cerr << "โปรแกรม '" << funcname << "' ยังไม่ถูกประกาศ ที่บรรทัด "
+             << expr["line"] << " คอลัมน์ " << expr["column"] << "";
+        exit(1);
+    }
+    const functionDef& def = functionTable[funcname];
+    if (args.size() > def.parameter.size()) {
+        cout << "\033[31m";
+        cerr << "อาร์กิวเมนต์มากเกินไป สำหรับ '" << funcname << "' ต้องการสูงสุด "
+             << def.parameter.size() << ", ได้รับ " << args.size()
+             << " ที่บรรทัด " << expr["line"] << " คอลัมน์ " << expr["column"] << "";
+        exit(1);
+    }
+
+    // Fill missing arguments with default values
+    vector<Value> allArgs = args;
+    allArgs.resize(def.parameter.size());
+    for (size_t i = args.size(); i < def.parameter.size(); ++i) {
+        if (i < def.defaultValues.size() && !def.defaultValues[i].is_null()) {
+            allArgs[i] = evalExpr(def.defaultValues[i]);  // evaluate default at call time
+        } else {
+            cout << "\033[31m";
+            cerr << "ไม่พบอาร์กิวเมนต์สำหรับพารามิเตอร์ '" << def.parameter[i]
+                 << "' และไม่มีค่าตั้งต้น ที่บรรทัด "
+                 << expr["line"] << " คอลัมน์ " << expr["column"] << "";
+            exit(1);
+        }
+    }
+    return evalFunctionFromParts(def.parameter, def.body, allArgs);
 	    }
 	}
  else if (type == "Length") {
@@ -1518,19 +1534,26 @@ Value evalStatement(const json &stmt) {
 		throw ReturnException(val);
 		return nullptr;
 	}else if (type == "functionDeclaretion") {
-		string funcName = stmt["name"];
-		vector<string> parameterName;
-		for (const auto &a : stmt["parameter"]) {
-			parameterName.push_back(a["variable"]["name"]);
-		}
-
-		functionDef func;
-		func.name = funcName;
-		func.parameter = parameterName;
-		func.body = stmt["body"]["statements"];
-		functionTable[funcName] = func;
-		return nullptr;
-	}
+    string funcName = stmt["name"];
+    vector<string> parameterName;
+    vector<json> defaultValues;          // <-- new
+    for (const auto &a : stmt["parameter"]) {
+        parameterName.push_back(a["variable"]["name"]);
+        // If the parameter has a default value, store its AST
+        if (a.contains("value") && !a["value"].is_null()) {
+            defaultValues.push_back(a["value"]);
+        } else {
+            defaultValues.push_back(json()); // null means no default
+        }
+    }
+    functionDef func;
+    func.name = funcName;
+    func.parameter = parameterName;
+    func.defaultValues = defaultValues;  // <-- store them
+    func.body = stmt["body"]["statements"];
+    functionTable[funcName] = func;
+    return nullptr;
+}
 else if (type == "Push") {
 		Value arrayVal = evalExpr(stmt["array"]);
 		Value value = evalExpr(stmt["value"]);
@@ -1715,88 +1738,116 @@ else if (type == "Push") {
 	    }
 	    return nullptr;
 	}
-	else if (stmt["type"] == "import") {
-	    using namespace std;
-	    namespace fs = std::filesystem;
+else if (stmt["type"] == "import") {
+    using namespace std;
+    namespace fs = std::filesystem;
 
-	    string filename = stmt["file"];
-	    string namespaceName = stmt["name"];
+    string filename = stmt["file"];
+    string namespaceName = stmt["name"];
+    string currentFilePath = stmt.value("__currentFilePath", "");
 
-	    // path ของไฟล์แม่ (กรณี import ซ้อน)
-	    string currentFilePath = stmt.value("__currentFilePath", "");
+    fs::path inputPath(filename);
+    fs::path resolvedPath;
+    bool found = false;
 
-	    fs::path filePath;
-	    fs::path inputPath(filename);
+    // 1. ถ้าเป็น absolute path → ใช้ทันที
+    if (inputPath.is_absolute()) {
+        resolvedPath = inputPath;
+        found = fs::exists(resolvedPath);
+    }
+    else {
+        // 2. ตรวจสอบว่ามีไดเรกทอรีในพาธหรือไม่
+        //    (has_parent_path() หมายถึง มีส่วนที่เป็น "โฟลเดอร์" เช่น "./foo", "../bar", "sub/baz")
+        bool hasParent = inputPath.has_parent_path();
 
-	    if (inputPath.is_absolute()) {
-	        // 1️⃣ ระบุ absolute path → ใช้ตรง ๆ
-	        filePath = inputPath;
-	    }
-	    else if (!currentFilePath.empty()) {
-	        // 2️⃣ import ซ้อน → อิงจากไฟล์แม่
-	        fs::path parentPath = fs::path(currentFilePath).parent_path();
-	        filePath = parentPath / inputPath;
-	    }
-	    else {
-	        // 3️⃣ ไม่ระบุ path → ใช้ <exe>/lib/
-	        fs::path exeDir = getExeDir();
-	        filePath = exeDir / "lib" / inputPath;
-	    }
+        if (hasParent) {
+            // เป็น relative path ที่ระบุโฟลเดอร์ไว้ชัดเจน → resolve สัมพันธ์กับไฟล์แม่ หรือ CWD
+            fs::path base;
+            if (!currentFilePath.empty()) {
+                base = fs::path(currentFilePath).parent_path();
+            } else {
+                base = fs::current_path();
+            }
+            resolvedPath = base / inputPath;
+            found = fs::exists(resolvedPath);
+            // ไม่ค้นหาใน lib เพราะผู้ใช้ระบุพาธเอง
+        }
+        else {
+            // 3. เป็นชื่อไฟล์ล้วน (ไม่มี / หรือ . หรือ ..) → ค้นหาใน lib ก่อน
+            fs::path exeLib = getExeDir() / "lib" / inputPath;
+            if (fs::exists(exeLib)) {
+                resolvedPath = exeLib;
+                found = true;
+            } else {
+                // 4. ไม่พบใน lib → ค้นหาในไดเรกทอรีของไฟล์แม่ (ถ้ามี) หรือ CWD
+                fs::path base;
+                if (!currentFilePath.empty()) {
+                    base = fs::path(currentFilePath).parent_path();
+                } else {
+                    base = fs::current_path();
+                }
+                resolvedPath = base / inputPath;
+                found = fs::exists(resolvedPath);
+            }
+        }
+    }
 
-	    filePath = fs::absolute(filePath);
+    // ถ้าไม่พบไฟล์ → รายงานข้อผิดพลาด
+    if (!found) {
+        cout << "\033[31m";
+        cerr << "ไม่พบไฟล์ '" << filename
+             << "' ที่บรรทัด " << stmt["line"]
+             << " คอลัมน์ " << stmt["column"] << "";
+        exit(1);
+    }
 
-	    if (!fs::exists(filePath)) {
-			cout << "\033[31m";
-	        cerr << "ไม่พบไฟล์ '" << filePath
-	             << "' ที่บรรทัด " << stmt["line"]
-	             << " คอลัมน์ " << stmt["column"] << "";
-	        exit(1);
-	    }
+    // Normalize path และทำตามขั้นตอนเดิม
+    fs::path filePath = fs::absolute(resolvedPath);
 
-	    ifstream inFile(filePath);
-	    if (!inFile.is_open()) {
-			cout << "\033[31m";
-	        cerr << "ไม่สามารถเปิดไฟล์ '" << filePath
-	             << "' ได้ ที่บรรทัด " << stmt["line"]
-	             << " คอลัมน์ " << stmt["column"] << "";
-	        exit(1);
-	    }
+    ifstream inFile(filePath);
+    if (!inFile.is_open()) {
+        cout << "\033[31m";
+        cerr << "ไม่สามารถเปิดไฟล์ '" << filePath
+             << "' ได้ ที่บรรทัด " << stmt["line"]
+             << " คอลัมน์ " << stmt["column"] << "";
+        exit(1);
+    }
 
-	    stringstream buffer;
-	    buffer << inFile.rdbuf();
-	    inFile.close();
+    stringstream buffer;
+    buffer << inFile.rdbuf();
+    inFile.close();
 
-	    string content = buffer.str();
-	    if (content.empty()) {
-			cout << "\033[31m";
-	        cerr << "ไฟล์ '" << filePath
-	             << "' ว่างเปล่า! ที่บรรทัด "
-	             << stmt["line"] << " คอลัมน์ "
-	             << stmt["column"] << "";
-	        exit(1);
-	    }
+    string content = buffer.str();
+    if (content.empty()) {
+        cout << "\033[31m";
+        cerr << "ไฟล์ '" << filePath
+             << "' ว่างเปล่า! ที่บรรทัด "
+             << stmt["line"] << " คอลัมน์ "
+             << stmt["column"] << "";
+        exit(1);
+    }
 
-	    json importedAST;
-	    try {
-	        importedAST = json::parse(content);
-	    } catch (const json::parse_error& e) {
-			cout << "\033[31m";
-	        cerr << "ไฟล์ที่นำเข้าต้องมีสกุลเป็น .json ที่บรรทัด " << stmt["line"] << " คอลัมน์ "
-		             << stmt["column"] << "";
-	        exit(1);
-	    }
+    json importedAST;
+    try {
+        importedAST = json::parse(content);
+    } catch (const json::parse_error& e) {
+        cout << "\033[31m";
+        cerr << "ไฟล์ที่นำเข้าต้องมีสกุลเป็น .json ที่บรรทัด " << stmt["line"] << " คอลัมน์ "
+             << stmt["column"] << "";
+        exit(1);
+    }
 
-	    // ส่ง path ปัจจุบันให้ import ซ้อน
-	    for (auto& innerStmt : importedAST["statements"]) {
-	        innerStmt["__currentFilePath"] = filePath.string();
-	    }
+    // ส่ง path ปัจจุบันให้ import ซ้อน
+    for (auto& innerStmt : importedAST["statements"]) {
+        innerStmt["__currentFilePath"] = filePath.string();
+    }
 
-	    evalProgram(importedAST);
-	    importModules[namespaceName] = exportedFunctions;
-	    exportedFunctions.clear();
+    evalProgram(importedAST);
+    importModules[namespaceName] = exportedFunctions;
+    exportedFunctions.clear();
 
-	    return nullptr;
-	}
+    return nullptr;
+}
 
 
 
@@ -2716,6 +2767,12 @@ public:
     }
 }
 
+	void blankline(){
+		while (peek().type == "NEWLINE") {
+        		advance();
+    	}
+	}
+
 	    bool match(const string &type) {
 	        if (peek().type == type) {
 	            advance();
@@ -2725,15 +2782,14 @@ public:
 	    }
 
 	    void expect_indent() {
-	        skip_newlines();
+			blankline();
 	        if (!match("INDENT")) {
 	            syntaxError(peek(), "ต้องการการเยื้อง");
 	        }
 	    }
 
 	    void expect_dedent() {
-	        // Skip newlines before dedent
-	        skip_newlines();
+	    	blankline();
 	        if (!match("DEDENT")) {
 	            syntaxError(peek(), "ต้องการลดระดับการเยื้อง");
 	        }
@@ -2743,7 +2799,7 @@ public:
 	        vector<ASTNodePtr> statements;
 
 	        while (peek().type != "EOF") {
-	            skip_newlines();
+	            blankline();
 	            if (peek().type == "EOF") break;
 
 	            statements.push_back(parseStatement());
@@ -3105,7 +3161,7 @@ public:
 		                        base = make_shared<EraseNode>(base, arg, t);
 		                    }
 		                    if (!match("CLOSE_PAREN")) {
-		                        syntaxError(peek(), "ขาด ) หลัง " + method + " อากิวเมนต์");
+		                        syntaxError(peek(), "ขาด ) หลัง " + method + " อาร์กิวเมนต์");
 		                    }
 		                }
 		                else { // PUSH or INSERT
@@ -3114,7 +3170,7 @@ public:
 
 		                    if (method == "PUSH") {
 		                        if (!match("CLOSE_PAREN")) {
-		                            syntaxError(peek(), "ขาด ) หลัง " + method + " อากิวเมนต์");
+		                            syntaxError(peek(), "ขาด ) หลัง " + method + " อาร์กิวเมนต์");
 		                        }
 		                        base = make_shared<PushNode>(base, arg1, t);
 		                    }
@@ -3167,18 +3223,18 @@ public:
 	                while (peek().type != "CLOSE_PAREN" &&
 	                       peek().type != "EOF")
 	                {
-	        		    skip_newlines();
+	        		    blankline();
 	                    args.push_back(parseExpression());
-	            	   skip_newlines();
+	            	   blankline();
 	                    if (match("COMMA")) {
 	                        continue;
 	                    } else {
 	                        break;
 	                    }
-	        		   skip_newlines();
+	        		   blankline();
 
 	                }
-	    		  skip_newlines();
+	    		  blankline();
 	                if (!match("CLOSE_PAREN")) {
 	                    syntaxError(peek(), "ขาด ) หลังการเรียก โปรแกรม");
 	                }
@@ -3216,8 +3272,7 @@ public:
 		}
 
 		stringstream ss;
-		ss << "คาดหวังนิพจน์แต่พบ '" << peek().value
-		   << "' (ชนิด: " << peek().type << ")";
+		ss << "คาดหวังนิพจน์แต่พบ '" << peek().value << "' (ชนิด: " << peek().type << ")";
 		syntaxError(peek(), ss.str());
 		return nullptr;
 	}
@@ -3512,6 +3567,7 @@ public:
 	        syntaxError(peek(), "ต้องมี ) ที่ ทำซ้ำ");
 	    }
 
+
 	    ASTNodePtr st1 = make_shared<IntNode>(0, peek());
 	    ASTNodePtr st2 = make_shared<IntNode>(0, peek());
 	    ASTNodePtr st3 = make_shared<IntNode>(1, peek());
@@ -3532,13 +3588,13 @@ public:
 	        syntaxError(peek(), "ต้องการ : หลังการวนซ้ำ");
 	    }
 
-	    skip_newlines();
+	    blankline();
 	    expect_indent();
 
 	    vector<ASTNodePtr> body;
 	    while (peek().type != "DEDENT" && peek().type != "EOF") {
 	        body.push_back(parseStatement());
-	        skip_newlines();
+	        blankline();
 	    }
 
 	    expect_dedent();
@@ -3551,30 +3607,26 @@ public:
 	        syntaxError(peek(), "ไม่พบคำสั่ง ขณะ");
 	    }
 
-	    if (!match("OPEN_PAREN")) {
 
-	    }
 	   skip_newlines();
 	    ASTNodePtr cond = nullptr;
-	    if (peek().type != "CLOSE_PAREN") {
+	    if (peek().type != "COLON") {
 	        cond = parseExpression();
 	    }
 	   skip_newlines();
-	    if (!match("CLOSE_PAREN")) {
 
-	    }
 
 	    if (!match("COLON")) {
 	        syntaxError(peek(), "ต้องการ : หลังเงื่อนไข ขณะ");
 	    }
 
-	    skip_newlines();
+	    blankline();
 	    expect_indent();
 
 	    vector<ASTNodePtr> body;
 	    while (peek().type != "DEDENT" && peek().type != "EOF") {
 	        body.push_back(parseStatement());
-	        skip_newlines();
+	        blankline();
 	    }
 
 	    expect_dedent();
@@ -3590,13 +3642,13 @@ public:
 	        syntaxError(peek(), "ต้องการ : หลัง ทำ");
 	    }
 
-	    skip_newlines();
+	    blankline();
 	    expect_indent();
 
 	    vector<ASTNodePtr> body;
 	    while (peek().type != "DEDENT" && peek().type != "EOF") {
 	        body.push_back(parseStatement());
-	        skip_newlines();
+	        blankline();
 	    }
 
 	    expect_dedent();
@@ -3605,20 +3657,12 @@ public:
 	        syntaxError(peek(), "ไม่พบ ขณะ ใน ทำ..ขณะ");
 	    }
 
-	    if (!match("OPEN_PAREN")) {
-
-	    }
 	    skip_newlines();
 	    ASTNodePtr cond = nullptr;
-	    if (peek().type != "CLOSE_PAREN" && peek().type != "EOF") {
+	    if (peek().type != "COLON" && peek().type != "EOF") {
 	        cond = parseExpression();
 	    }
 	   skip_newlines();
-	    if (!match("CLOSE_PAREN")) {
-
-	    }
-
-
 
 	    return make_shared<DoWhileNode>(cond, body, t);
 	}
@@ -3628,29 +3672,25 @@ public:
 	        syntaxError(peek(), "ไม่พบคำสั่ง มิฉะนั้นถ้า");
 	    }
 
-	    if (!match("OPEN_PAREN")) {
-
-	    }
 	    ASTNodePtr cond = nullptr;
-	    if (peek().type != "CLOSE_PAREN") {
+		skip_newlines();
+	    if (peek().type != "COLON") {
 	        cond = parseExpression();
 	    }
-	    if (!match("CLOSE_PAREN")) {
 
-	    }
 
 	    if (!match("COLON")) {
 	        syntaxError(peek(), "ต้องการ : หลังเงื่อนไข");
 	    }
 
-	    skip_newlines();
+	    blankline();
 	    expect_indent();
 
 	    vector<ASTNodePtr> body;
 	    while (peek().type != "DEDENT" && peek().type != "EOF" &&
 	           peek().type != "ELIF" && peek().type != "ELSE") {
 	        body.push_back(parseStatement());
-	        skip_newlines();
+	        blankline();
 	    }
 
 	    expect_dedent();
@@ -3663,30 +3703,27 @@ public:
 	        syntaxError(peek(), "ไม่พบคำสั่ง ถ้า");
 	    }
 
-	    if (!match("OPEN_PAREN")) {
 
-	    }
+		skip_newlines();
 	    ASTNodePtr cond = nullptr;
-	    if (peek().type != "CLOSE_PAREN") {
+	    if (peek().type != "COLON") {
 	        cond = parseExpression();
 	    }
-	    if (!match("CLOSE_PAREN")) {
 
-	    }
 
 	    // Expect colon and indented block
 	    if (!match("COLON")) {
 	        syntaxError(peek(), "ต้องการ : หลังเงื่อนไข");
 	    }
 
-	    skip_newlines();
+	    blankline();
 	    expect_indent();
 
 	    vector<ASTNodePtr> body;
 	    while (peek().type != "DEDENT" && peek().type != "EOF" &&
 	           peek().type != "ELIF" && peek().type != "ELSE") {
 	        body.push_back(parseStatement());
-	        skip_newlines();
+	        blankline();
 	    }
 
 	    expect_dedent();
@@ -3713,76 +3750,75 @@ public:
 	        syntaxError(peek(), "ต้องการ : หลัง มิฉะนั้น");
 	    }
 
-	    skip_newlines();
+	    blankline();
 	    expect_indent();
 
 	    vector<ASTNodePtr> body;
 	    while (peek().type != "DEDENT" && peek().type != "EOF") {
 	        body.push_back(parseStatement());
-	        skip_newlines();
+	        blankline();
 	    }
 
 	    expect_dedent();
 	    return make_shared<ElseNode>(body, t);
 	}
 
-	ASTNodePtr parseFunctionDef() {
-	    Token t = peek();
-	    if (!match("PROGRAM")) {
-	        syntaxError(peek(), "ไม่พบคำสั่ง โปรแกรม");
-	    }
-		if (peek().type != "IDENTIFIER") {
-			syntaxError(peek(),"ขาดชื่อ โปรแกรม ในการประกาศโปรแกรม");
-		}
-		string funcname = advance().value;
-		if (!match("OPEN_PAREN")) {
-			syntaxError(peek(), "ขาด ( ในการประกาศโปรแกรม");
-		}
-	   skip_newlines();
-		vector<ASTNodePtr> pramas;
-		while (peek().type != "CLOSE_PAREN" &&
-			   peek().type != "EOF") {
-			//pramas.push_back(parseVariableDecleartion());
-			Token t = peek();
-		   skip_newlines();
-			if (peek().type !=
-				"IDENTIFIER") {
-				syntaxError(peek(),"ไม่มีชื่อตัวแปร");
-			}
-			ASTNodePtr varname = parsevariable();
-			ASTNodePtr initialValue = nullptr;
+ASTNodePtr parseFunctionDef() {
+    Token t = peek();
+    if (!match("PROGRAM")) {
+        syntaxError(peek(), "ไม่พบคำสั่ง โปรแกรม");
+    }
+    if (peek().type != "IDENTIFIER") {
+        syntaxError(peek(),"ขาดชื่อ โปรแกรม ในการประกาศโปรแกรม");
+    }
+    string funcname = advance().value;
+    if (!match("OPEN_PAREN")) {
+        syntaxError(peek(), "ขาด ( ในการประกาศโปรแกรม");
+    }
+   skip_newlines();
+    vector<ASTNodePtr> pramas;
+    while (peek().type != "CLOSE_PAREN" &&
+           peek().type != "EOF") {
+        //pramas.push_back(parseVariableDecleartion());
+        Token t = peek();
+        skip_newlines();
+        if (peek().type != "IDENTIFIER") {
+            syntaxError(peek(),"ไม่มีชื่อตัวแปร");
+        }
+        ASTNodePtr varname = parsevariable();
+        ASTNodePtr initialValue = nullptr;
 
-			if (peek().type =="EQUALSSIGN") {
-				advance();
-				initialValue = parseExpression();
-			}
-		   skip_newlines();
-			pramas.push_back(make_shared<AssignmentNode>(varname, initialValue, t,true));
-			if (!match("COMMA")) {
-				break;
-			}
-		   skip_newlines();
-		}
-	    skip_newlines();
-		if (!match("CLOSE_PAREN")) {
-			syntaxError(peek(), "ขาด ( ในการประกาศโปรแกรม");
-		}
-	    if (!match("COLON")) {
-	        syntaxError(peek(), "ต้องการ : หลังพารามิเตอร์");
-	    }
+        if (peek().type == "EQUALSSIGN") {
+            advance();
+            initialValue = parseExpression();
+        }
+        skip_newlines();
+        pramas.push_back(make_shared<AssignmentNode>(varname, initialValue, t,true));
+        if (!match("COMMA")) {
+            break;
+        }
+        skip_newlines();
+    }
+    skip_newlines();
+    if (!match("CLOSE_PAREN")) {
+        syntaxError(peek(), "ขาด ) ในการประกาศโปรแกรม");
+    }
+    if (!match("COLON")) {
+        syntaxError(peek(), "ต้องการ : หลังพารามิเตอร์");
+    }
 
-	    skip_newlines();
-	    expect_indent();
+    blankline();
+    expect_indent();
 
-	    vector<ASTNodePtr> body;
-	    while (peek().type != "DEDENT" && peek().type != "EOF") {
-	        body.push_back(parseStatement());
-	        skip_newlines();
-	    }
+    vector<ASTNodePtr> body;
+    while (peek().type != "DEDENT" && peek().type != "EOF") {
+        body.push_back(parseStatement());
+        blankline();
+    }
 
-	    expect_dedent();
-	    return make_shared<FunctionDeclaretionNode>(funcname, pramas, body, "none", t);
-	}
+    expect_dedent();
+    return make_shared<FunctionDeclaretionNode>(funcname, pramas, body, "none", t);
+}
 	ASTNodePtr parseInput() {
 		Token t = peek();
 		if (!match("INPUT")) {
@@ -3893,7 +3929,7 @@ public:
 	        return expr;
 	    }
 
-	    skip_newlines();
+	    blankline();
 
 	    stringstream ss;
 	    ss << "คำสั่งไม่รู้จัก: '" << peek().value
