@@ -4484,7 +4484,7 @@ int main(int argc, char *argv[]) {
 
     // เช็คกรณี version command
     if (filename == "-v" || filename == "-version") {
-        cout << "mmt version 1.0 Runes of Thai" << "";
+        cout << "mmt version 3.0 The Syntax & Souls Update" << "";
         return 0;
     }else if(filename == "donut"){
 		DONUT();
