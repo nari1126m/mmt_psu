@@ -18,7 +18,7 @@ _____________________________
 |	mmt						|
 |	AND						|
 |	mmt donut               |
-|	IN THE TERMINAL						|
+|	IN THE TERMINAL		    |
 |___________________________|
 */
 #include "json.hpp"
