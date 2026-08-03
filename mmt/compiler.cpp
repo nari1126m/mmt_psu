@@ -4053,58 +4053,226 @@ vector<pair<string, string>> TokenPatterns = {
 };
 
 // ===================== รายการ keyword (เรียงจากยาวไปสั้น) =====================
-static const vector<pair<string, string>> keywordList = {
-    {"CONVERTDATATYPE", "เปลี่ยนชนิดข้อมูล"},
-    {"EXITPROCESS", "จบการทำงาน"},
-    {"FUNCTION", "ฟังก์ชั่น"},          // (ถ้ามี)
-    {"PROGRAM", "โปรแกรม"},
-    {"BOOLLEAN", "ค่าความจริง"},
-    {"INTEGER", "จำนวนเต็ม"},
-    {"FLOAT", "ทศนิยม"},
-    {"STRING", "ข้อความ"},
-    {"ARRAY", "ชุดข้อมูล"},
-    {"OBJECT", "อ็อบเจกต์"},
-    {"CONST", "ค่าคงที่"},
-    {"NULL", "ว่าง"},
-    {"LENGTH", "ขนาด"},
-    {"POP", "ดึงออก"},
-    {"PUSH", "เพิ่ม"},
-    {"INSERT", "แทรก"},
-    {"ERASE", "ลบ"},
-    {"EQUALSSIGN", "คือ"},
-    {"AS", "แทน"},
-    {"ROOT", "ราก"},
-    {"TRUE_VALUE", "จริง"},
-    {"FALSE_VALUE", "เท็จ"},
-    {"NOT", "ไม่"},
-    {"OR", "หรือ"},
-    {"AND", "และ"},
-    {"XOR", "ซอร์"},
-    {"INPUT", "รับ"},
-    {"PRINT", "แสดง"},
-    {"IF", "ถ้า"},
-    {"WHILE", "ขณะ"},
-    {"FOR", "สำหรับ"},
-    {"RANGE", "ในช่วง"},
-    {"DO", "ทำ"},
-    {"IMPORT", "นำเข้า"},
-    {"EXPORT", "ส่งออก"},
-    {"BREAK", "หยุด"},
-    {"CONTINUE", "ถัดไป"},
-    {"ELIF", "มิฉะนั้นถ้า"},
-    {"ELSE", "มิฉะนั้น"},
-    {"VOID", "เปล่า"},
-    {"RETURN", "คืนค่า"},
-    {"LN", "ln"},
-    {"BE", "เป็น"},
-    {"DECLARE", "ให้"},    // (ถ้าใช้)
-    // เพิ่ม keyword ภาษาไทย/อังกฤษอื่น ๆ ที่เคยอยู่ใน TokenPatterns เดิม
+// ===================== Keyword Map (คำพ้องความหมาย) =====================
+static const std::unordered_map<std::string, std::string> keywordMap = {
+    // เปลี่ยนชนิดข้อมูล / การแปลง
+    {"เปลี่ยนชนิดข้อมูล", "CONVERTDATATYPE"},
+    {"แปลงชนิด", "CONVERTDATATYPE"},
+    {"แปลงเป็น", "CONVERTDATATYPE"},
+    {"เปลี่ยนเป็น", "CONVERTDATATYPE"},
+
+    // จบการทำงาน
+    {"จบการทำงาน", "EXITPROCESS"},
+    {"ออก", "EXITPROCESS"},
+    {"เลิก", "EXITPROCESS"},
+    {"จบ", "EXITPROCESS"},
+
+    // ฟังก์ชัน
+    {"ฟังก์ชั่น", "FUNCTION"},
+    {"ฟังก์ชัน", "FUNCTION"},
+    {"กระบวนงาน", "FUNCTION"},
+    {"ซับรูทีน", "FUNCTION"},
+
+    // โปรแกรมหลัก
+    {"โปรแกรม", "PROGRAM"},
+    {"โปรแกรมหลัก", "PROGRAM"},
+
+    // ชนิดข้อมูล
+    {"ค่าความจริง", "BOOLLEAN"},
+    {"บูลีน", "BOOLLEAN"},
+    {"ตรรกะ", "BOOLLEAN"},
+
+    {"จำนวนเต็ม", "INTEGER"},
+    {"เลขจำนวนเต็ม", "INTEGER"},
+    {"จำนวนนับ", "INTEGER"},
+    {"อินทีเจอร์", "INTEGER"},
+
+    {"ทศนิยม", "FLOAT"},
+    {"เลขทศนิยม", "FLOAT"},
+    {"จำนวนจริง", "FLOAT"},
+    {"ลอย", "FLOAT"},
+
+    {"ข้อความ", "STRING"},
+    {"สายอักขระ", "STRING"},
+    {"สตริง", "STRING"},
+    {"ตัวหนังสือ", "STRING"},
+
+    {"ชุดข้อมูล", "ARRAY"},
+    {"อาเรย์", "ARRAY"},
+    {"แถวลำดับ", "ARRAY"},
+    {"อาร์เรย์", "ARRAY"},
+
+    {"อ็อบเจกต์", "OBJECT"},
+    {"วัตถุ", "OBJECT"},
+    {"ออบเจ็กต์", "OBJECT"},
+
+    // ค่าคงที่
+    {"ค่าคงที่", "CONST"},
+    {"คงที่", "CONST"},
+    {"ตัวคงที่", "CONST"},
+
+    // ค่าว่าง
+    {"ว่าง", "NULL"},
+    {"ค่าว่าง", "NULL"},
+    {"ไม่มี", "NULL"},
+    {"นิล", "NULL"},
+
+    // การจัดการโครงสร้างข้อมูล
+    {"ขนาด", "LENGTH"},
+    {"ความยาว", "LENGTH"},
+    {"จำนวน", "LENGTH"},
+
+    {"ดึงออก", "POP"},
+    {"เอาออก", "POP"},
+    {"ป๊อป", "POP"},
+
+    {"เพิ่ม", "PUSH"},
+    {"เพิ่มเข้า", "PUSH"},
+    {"พุช", "PUSH"},
+
+    {"แทรก", "INSERT"},
+    {"ใส่", "INSERT"},
+    {"เพิ่มระหว่าง", "INSERT"},
+
+    {"ลบ", "ERASE"},
+    {"ลบทิ้ง", "ERASE"},
+    {"ลบข้อมูล", "ERASE"},
+
+    // การเปรียบเทียบ / กำหนดค่า
+    {"คือ", "EQUALSSIGN"},
+    {"เท่ากับ", "EQUALSSIGN"},
+    {"เป็น", "EQUALSSIGN"},
+
+    {"แทน", "AS"},
+    {"ในนาม", "AS"},
+    {"นาม", "AS"},
+
+    {"เป็น", "BE"},
+    {"เท่ากับ", "BE"},
+    {"มีค่า", "BE"},
+
+    // คณิตศาสตร์เพิ่มเติม
+    {"ราก", "ROOT"},
+    {"กรณฑ์", "ROOT"},
+    {"รากที่สอง", "ROOT"},
+    {"สแควร์รูท", "ROOT"},
+
+    {"ln", "LN"},
+    {"ลอการิทึมธรรมชาติ", "LN"},
+    {"ล็อกธรรมชาติ", "LN"},
+
+    // ค่าความจริง
+    {"จริง", "TRUE_VALUE"},
+    {"ถูก", "TRUE_VALUE"},
+    {"ใช่", "TRUE_VALUE"},
+
+    {"เท็จ", "FALSE_VALUE"},
+    {"ผิด", "FALSE_VALUE"},
+    {"ไม่จริง", "FALSE_VALUE"},
+
+    // ตัวดำเนินการทางตรรกะ
+    {"ไม่", "NOT"},
+    {"นิเสธ", "NOT"},
+
+    {"หรือ", "OR"},
+    {"หรือว่า", "OR"},
+
+    {"และ", "AND"},
+    {"กับ", "AND"},
+    {"แล้ว", "AND"},
+
+    {"ซอร์", "XOR"},
+    {"เอ็กซ์คลูซีฟออร์", "XOR"},
+
+    // นำเข้า/ส่งออกข้อมูล
+    {"รับ", "INPUT"},
+    {"รับค่า", "INPUT"},
+    {"อินพุต", "INPUT"},
+    {"อ่าน", "INPUT"},
+
+    {"แสดง", "PRINT"},
+    {"พิมพ์", "PRINT"},
+    {"แสดงผล", "PRINT"},
+    {"บอก", "PRINT"},
+    {"ปริ้น", "PRINT"},
+    {"เขียน", "PRINT"},
+    {"แสดงค่า", "PRINT"},
+
+    // โครงสร้างควบคุม
+    {"ถ้า", "IF"},
+    {"หาก", "IF"},
+    {"ถ้าหาก", "IF"},
+    {"เมื่อ", "IF"},
+    {"ในกรณี", "IF"},
+    {"ในกรณีที่", "IF"},
+
+    {"มิฉะนั้นถ้า", "ELIF"},
+    {"อื่นถ้า", "ELIF"},
+    {"ไม่เช่นนั้นถ้า", "ELIF"},
+    {"เอลิฟ", "ELIF"},
+
+    {"มิฉะนั้น", "ELSE"},
+    {"อื่น", "ELSE"},
+    {"ไม่เช่นนั้น", "ELSE"},
+    {"เอลส์", "ELSE"},
+
+    {"ขณะ", "WHILE"},
+    {"ระหว่าง", "WHILE"},
+    {"ตราบใดที่", "WHILE"},
+    {"ขณะที่", "WHILE"},
+    {"ในขณะที่", "WHILE"},
+
+    {"สำหรับ", "FOR"},
+    {"วน", "FOR"},
+    {"วนซ้ำ", "FOR"},
+    {"เพื่อ", "FOR"},
+    {"ทำซ้ำสำหรับ", "FOR"},
+
+    {"ในช่วง", "RANGE"},
+    {"ช่วง", "RANGE"},
+    {"จนถึง", "RANGE"},
+
+    {"ทำ", "DO"},
+    {"กระทำ", "DO"},
+
+    // การนำเข้า/ส่งออกโมดูล
+    {"นำเข้า", "IMPORT"},
+    {"เอาเข้า", "IMPORT"},
+    {"อิมพอร์ต", "IMPORT"},
+
+    {"ส่งออก", "EXPORT"},
+    {"เอ็กซ์พอร์ต", "EXPORT"},
+    {"ส่งออกไป", "EXPORT"},
+
+    // ควบคุมลูป
+    {"หยุด", "BREAK"},
+    {"เลิก", "BREAK"},
+    {"เบรก", "BREAK"},
+
+    {"ถัดไป", "CONTINUE"},
+    {"ต่อไป", "CONTINUE"},
+    {"ดำเนินต่อ", "CONTINUE"},
+
+    // ฟังก์ชันคืนค่า
+    {"เปล่า", "VOID"},
+    {"ไม่มีค่า", "VOID"},
+    {"วอยด์", "VOID"},
+
+    {"คืนค่า", "RETURN"},
+    {"ส่งคืน", "RETURN"},
+    {"รีเทิร์น", "RETURN"},
+
+    // การประกาศตัวแปร
+    {"ให้", "DECLARE"},
+    {"ประกาศ", "DECLARE"},
+    {"กำหนดให้", "DECLARE"},
+    {"ให้มี", "DECLARE"},
 };
 
-// ===================== Lexer ใหม่ =====================
-vector<Token> lexer(const string &code) {
-    vector<Token> tokens;
-    vector<int> indent_stack = {0};
+// ===================== Lexer ใหม่ (ใช้ของเดิมที่มีอยู่แล้ว) =====================
+std::vector<Token> lexer(const std::string &code) {
+    std::vector<Token> tokens;
+    std::vector<int> indent_stack = {0};
     int current_line = 1;
     int current_col = 1;
     size_t i = 0;
@@ -4177,21 +4345,21 @@ vector<Token> lexer(const string &code) {
             continue;
         }
 
-        // ---------- ลอง match ด้วย TokenPatterns (สัญลักษณ์, ตัวเลข, สตริง) ----------
+        // ---------- ลอง match ด้วย TokenPatterns ----------
         bool matched = false;
-        string remaining = code.substr(i);
+        std::string remaining = code.substr(i);
 
         for (const auto &[type, pattern] : TokenPatterns) {
             if (type == "NEWLINE" || type == "INDENT" || type == "DEDENT") continue;
 
-            regex reg("^" + pattern);
-            smatch match;
-            if (regex_search(remaining, match, reg)) {
-                string token_value = match[0].str();
+            std::regex reg("^" + pattern);
+            std::smatch match;
+            if (std::regex_search(remaining, match, reg)) {
+                std::string token_value = match[0].str();
 
                 if (type == "STRING_VALUE") {
                     token_value = token_value.substr(1, token_value.length() - 2);
-                    string unescaped;
+                    std::string unescaped;
                     for (size_t j = 0; j < token_value.length(); j++) {
                         if (token_value[j] == '\\' && j + 1 < token_value.length()) {
                             switch (token_value[j + 1]) {
@@ -4212,7 +4380,7 @@ vector<Token> lexer(const string &code) {
 
                 tokens.push_back({type, token_value, current_line, current_col});
                 i += match[0].length();
-                current_col += count_utf8_chars(token_value);
+                current_col += count_utf8_chars(token_value);   // ใช้ของเดิม
                 matched = true;
                 break;
             }
@@ -4224,31 +4392,26 @@ vector<Token> lexer(const string &code) {
             size_t check_pos = start;
             char32_t first_cp = readUtf8Char(code, check_pos);
             if (isIdentifierStart(first_cp)) {
-                // อ่านต่อจนกว่าจะไม่ใช่ identifier part
-                size_t end = check_pos; // check_pos ชี้ไปหลัง first_cp แล้ว
+                size_t end = check_pos;
                 while (end < code.length()) {
                     size_t next = end;
                     char32_t cp = readUtf8Char(code, next);
                     if (!isIdentifierPart(cp)) break;
                     end = next;
                 }
-                string token_value = code.substr(i, end - i);
-                string token_type = "IDENTIFIER";
+                std::string token_value = code.substr(i, end - i);
+                std::string token_type = "IDENTIFIER";
 
-                // ตรวจสอบ keyword (ไล่จากยาวไปสั้น)
-                for (const auto &[type, word] : keywordList) {
-                    if (token_value == word) {
-                        token_type = type;
-                        break;
-                    }
+                // ตรวจสอบ keyword ด้วย map (แทนการวนลูปเดิม)
+                auto it = keywordMap.find(token_value);
+                if (it != keywordMap.end()) {
+                    token_type = it->second;
                 }
 
                 tokens.push_back({token_type, token_value, current_line, current_col});
                 current_col += count_utf8_chars(token_value);
                 i = end;
-                continue;
             } else {
-                // อักขระไม่รู้จัก -> error
                 size_t end = i;
                 while (end < code.length() && !isspace(code[end]) &&
                        code[end] != ';' && code[end] != ',' &&
@@ -4257,7 +4420,7 @@ vector<Token> lexer(const string &code) {
                        code[end] != '[' && code[end] != ']') {
                     end++;
                 }
-                string context = code.substr(i, min((size_t)20, end - i));
+                std::string context = code.substr(i, std::min((size_t)20, end - i));
                 lexerError(current_line, current_col, "ไม่พบคำสั่งนี้ในภาษา", context);
                 i = end;
             }
